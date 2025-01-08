@@ -1,0 +1,8 @@
+{
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportInvalidTypeForm": "none"
+},
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false
+}
