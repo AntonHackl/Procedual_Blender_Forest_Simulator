@@ -326,31 +326,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
     
     # native skinning method
     if nomodifiers == False and skinmethod == 'NATIVE': 
-        sphere_id = 1000
-        top = find_top_of_trunk(tree.branchpoints)
-        
-        trunk_nodes = [top]
-        
-        while trunk_nodes[-1].parent is not None:
-          trunk_nodes.append(tree.branchpoints[trunk_nodes[-1].parent])
-        
-        for trunk_node in trunk_nodes:
-          # if bp.connections <= 1 and bp.parent is not None and tree.branchpoints[bp.parent].shoot != bp:
-          # print(tree.branchpoints[bp.parent].connections)
-            # bpy.ops.mesh.primitive_uv_sphere_add(radius=0.1, location=(bp.v[0], bp.v[1], bp.v[2]))
-            # sphere = bpy.context.object
-          mesh = bpy.data.meshes.new('Basic_Sphere')
-          bm = bmesh.new()
-          bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, diameter=0.1)
-          bm.to_mesh(mesh)
-          bm.free()
-          basic_sphere = bpy.data.objects.new("Basic_Sphere", mesh)
-          basic_sphere.location = (trunk_node.v[0], trunk_node.v[1], trunk_node.v[2])
-          basic_sphere.name = f"Sphere_{sphere_id}"
-          sphere_id += 1
-          collection = bpy.data.collections.get("Collection")
-          collection.objects.link(basic_sphere)
-            
         # add a quad edge loop to all roots
         for r in roots:
             simpleskin(r, verts, faces, radii, power, scale, p)
@@ -394,28 +369,112 @@ def createGeometry(tree, power=0.5, scale=0.01,
 
         # add a skin modifier
         if skinmethod == 'BLENDER':
-            bpy.ops.object.modifier_add(type='SKIN')
-            bpy.context.active_object.modifiers[-1].use_smooth_shade=True
-            bpy.context.active_object.modifiers[-1].use_x_symmetry=True
-            bpy.context.active_object.modifiers[-1].use_y_symmetry=True
-            bpy.context.active_object.modifiers[-1].use_z_symmetry=True
+          sphere_id = 0
+          top = find_top_of_trunk(tree.branchpoints)
+          
+          trunk_nodes = [top]
+          
+          while trunk_nodes[-1].parent is not None:
+            trunk_nodes.append(tree.branchpoints[trunk_nodes[-1].parent])
+          
+          trunk_node_positions = [trunk_node.v for trunk_node in trunk_nodes]
+          branch_node_positions = [bp.v for bp in tree.branchpoints if bp not in trunk_nodes]
+          # add spheres to demonstrate trunk nodes
+          # for position in trunk_node_positions:
+          #   # if bp.connections <= 1 and bp.parent is not None and tree.branchpoints[bp.parent].shoot != bp:
+          #   # print(tree.branchpoints[bp.parent].connections)
+          #     # bpy.ops.mesh.primitive_uv_sphere_add(radius=0.1, location=(bp.v[0], bp.v[1], bp.v[2]))
+          #     # sphere = bpy.context.object
+          #   mesh_sphere = bpy.data.meshes.new('Basic_Sphere')
+          #   bm = bmesh.new()
+          #   bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, diameter=0.1)
+          #   bm.to_mesh(mesh_sphere)
+          #   bm.free()
+          #   basic_sphere = bpy.data.objects.new("Basic_Sphere", mesh_sphere)
+          #   basic_sphere.location = position
+          #   basic_sphere.name = f"Sphere_{sphere_id}"
+          #   sphere_id += 1
+          #   collection = bpy.data.collections.get("Collection")
+          #   collection.objects.link(basic_sphere)
+          
+          bpy.ops.object.modifier_add(type='SKIN')
+          bpy.context.active_object.modifiers[-1].use_smooth_shade=True
+          bpy.context.active_object.modifiers[-1].use_x_symmetry=True
+          bpy.context.active_object.modifiers[-1].use_y_symmetry=True
+          bpy.context.active_object.modifiers[-1].use_z_symmetry=True
+          
+          skinverts = bpy.context.active_object.data.skin_vertices[0].data
 
-            skinverts = bpy.context.active_object.data.skin_vertices[0].data
-
-            for i,v in enumerate(skinverts):
-                v.radius = [(radii[i]**power)*scale,(radii[i]**power)*scale]
-                if i in roots:
-                    v.use_root = True
-            
-            # add an extra subsurf modifier to smooth the skin
-            bpy.ops.object.modifier_add(type='SUBSURF')
-            bpy.context.active_object.modifiers[-1].levels = 1
-            bpy.context.active_object.modifiers[-1].render_levels = 2
-            #Changed from me
-            #bpy.context.active_object.modifiers[-1].use_subsurf_uv = True
-            # to (same above)
-            bpy.context.active_object.modifiers[0].uv_smooth = 'PRESERVE_CORNERS'
-
+          for i,v in enumerate(skinverts):
+            v.radius = [(radii[i]**power)*scale,(radii[i]**power)*scale]
+            if i in roots:
+                v.use_root = True
+          
+          # add an extra subsurf modifier to smooth the skin
+          bpy.ops.object.modifier_add(type='SUBSURF')
+          bpy.context.active_object.modifiers[-1].levels = 1
+          bpy.context.active_object.modifiers[-1].render_levels = 2
+          #Changed from me
+          #bpy.context.active_object.modifiers[-1].use_subsurf_uv = True
+          # to (same above)
+          # bpy.context.active_object.modifiers[0].uv_smooth = 'PRESERVE_CORNERS'
+          
+          # bpy.ops.object.mode_set(mode='EDIT')
+          # bpy.ops.mesh.select_all(action='DESELECT')
+          # bpy.ops.object.vertex_group_set_active(group='TrunkGroup')
+          # bpy.ops.object.vertex_group_select()
+          # obj_new.active_material_index = 0
+          # bpy.ops.object.material_slot_assign()
+          # bpy.ops.mesh.select_all(action='DESELECT')
+          # bpy.ops.object.vertex_group_set_active(group='BranchGroup')
+          # bpy.ops.object.vertex_group_select()
+          # obj_new.active_material_index = 1
+          # bpy.ops.object.material_slot_assign()
+          # bpy.ops.object.mode_set(mode='OBJECT')
+          
+          trunk_material = create_material("TrunkMaterial", (1, 0, 0, 1)) # Red color
+          branch_material = create_material("BranchMaterial", (0, 1, 0, 1)) # Green color
+          assign_material(obj_new, trunk_material)
+          assign_material(obj_new, branch_material)
+          trunk_vertex_indices = []
+          branch_vertex_indices = []
+          # bpy.ops.object.modifier_apply(modifier="Skin")
+          depsgraph = bpy.context.evaluated_depsgraph_get()
+          evaluated_obj = obj_new.evaluated_get(depsgraph)
+          # final_mesh = evaluated_obj.to_mesh()
+          final_mesh = bpy.data.meshes.new_from_object(evaluated_obj)
+          obj_processed = bpy.data.objects.new('Tree_Processed', final_mesh)
+          bpy.context.view_layer.active_layer_collection.collection.objects.link(obj_processed)
+          # obj_new.data = final_mesh
+          
+          for poly in final_mesh.polygons:
+            position = poly.center
+            trunk_node_distances = [float('inf')]
+            trunk_node_distances.extend([
+              abs(position[0] - trunk_node_position[0]) + 
+              abs(position[1] - trunk_node_position[1]) +
+              abs(position[2] - trunk_node_position[2])
+              for trunk_node_position in trunk_node_positions
+            ])
+            branch_node_distances = [float('inf')]
+            branch_node_distances.extend([
+              abs(position[0] - branch_node_position[0]) + 
+              abs(position[1] - branch_node_position[1]) +
+              abs(position[2] - branch_node_position[2])
+              for branch_node_position in branch_node_positions
+            ])
+            if min(trunk_node_distances) < min(branch_node_distances):
+              poly.material_index = 0
+            else:
+              poly.material_index = 1
+              
+          assign_vertices_to_group(obj_new, "TrunkGroup", trunk_vertex_indices)
+          assign_vertices_to_group(obj_new, "BranchGroup", branch_vertex_indices)
+          
+          obj_processed.data.update()
+          obj_new.data.update()
+          
+          
     timings.add('modifiers')
 
     # create a particles based leaf emitter (if we have leaves and/or objects)
@@ -481,6 +540,24 @@ def find_top_of_trunk(branchpoints):
         candidate = current_node
       queue.extend(node_to_children.get(current_index, []))
   return candidate
+
+def create_material(name, color):
+    mat = bpy.data.materials.get(name)
+    if mat is None:
+        mat = bpy.data.materials.new(name=name)
+        mat.diffuse_color = color
+    return mat
+
+def assign_material(obj, mat):
+    if mat.name not in obj.data.materials:
+        obj.data.materials.append(mat)
+
+def assign_vertices_to_group(obj, group_name, vertex_indices):
+    if group_name not in obj.vertex_groups:
+        group = obj.vertex_groups.new(name=group_name)
+    else:
+        group = obj.vertex_groups[group_name]
+    group.add(vertex_indices, 1.0, 'ADD')
 
 class SCATree(bpy.types.Operator):
     bl_idname = "mesh.sca_tree"
@@ -784,8 +861,8 @@ class SCATree(bpy.types.Operator):
             self.timePerformance,
             self.pruningGen)
         
-        # bpy.ops.object.material_slot_add()
-        # obj_new.material_slots[-1].material = barkmaterials[self.barkMaterial]
+        bpy.ops.object.material_slot_add()
+        obj_new.material_slots[-1].material = barkmaterials[self.barkMaterial]
         
         if self.showMarkers:
             obj_markers.parent = obj_new
