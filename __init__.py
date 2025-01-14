@@ -36,9 +36,15 @@ from random import random,gauss
 from functools import partial
 from math import sin,cos
 
+import scipy
+import numpy 
+print("Numpy version:", numpy.__version__)
+print("Scipy version:", scipy.__version__)
+
 import bpy
 from bpy.props import FloatProperty, IntProperty, BoolProperty, EnumProperty
 from mathutils import Vector,Euler,Matrix,Quaternion
+from scipy.spatial import KDTree
 import bmesh
 
 from .scanew import SCA, Branchpoint # the core class that implements the space colonization algorithm and the definition of a segment
@@ -369,16 +375,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
 
         # add a skin modifier
         if skinmethod == 'BLENDER':
-          sphere_id = 0
-          top = find_top_of_trunk(tree.branchpoints)
-          
-          trunk_nodes = [top]
-          
-          while trunk_nodes[-1].parent is not None:
-            trunk_nodes.append(tree.branchpoints[trunk_nodes[-1].parent])
-          
-          trunk_node_positions = [trunk_node.v for trunk_node in trunk_nodes]
-          branch_node_positions = [bp.v for bp in tree.branchpoints if bp not in trunk_nodes]
+          # sphere_id = 0
           # add spheres to demonstrate trunk nodes
           # for position in trunk_node_positions:
           #   # if bp.connections <= 1 and bp.parent is not None and tree.branchpoints[bp.parent].shoot != bp:
@@ -419,62 +416,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
           # to (same above)
           # bpy.context.active_object.modifiers[0].uv_smooth = 'PRESERVE_CORNERS'
           
-          # bpy.ops.object.mode_set(mode='EDIT')
-          # bpy.ops.mesh.select_all(action='DESELECT')
-          # bpy.ops.object.vertex_group_set_active(group='TrunkGroup')
-          # bpy.ops.object.vertex_group_select()
-          # obj_new.active_material_index = 0
-          # bpy.ops.object.material_slot_assign()
-          # bpy.ops.mesh.select_all(action='DESELECT')
-          # bpy.ops.object.vertex_group_set_active(group='BranchGroup')
-          # bpy.ops.object.vertex_group_select()
-          # obj_new.active_material_index = 1
-          # bpy.ops.object.material_slot_assign()
-          # bpy.ops.object.mode_set(mode='OBJECT')
-          
-          trunk_material = create_material("TrunkMaterial", (1, 0, 0, 1)) # Red color
-          branch_material = create_material("BranchMaterial", (0, 1, 0, 1)) # Green color
-          assign_material(obj_new, trunk_material)
-          assign_material(obj_new, branch_material)
-          trunk_vertex_indices = []
-          branch_vertex_indices = []
-          # bpy.ops.object.modifier_apply(modifier="Skin")
-          depsgraph = bpy.context.evaluated_depsgraph_get()
-          evaluated_obj = obj_new.evaluated_get(depsgraph)
-          # final_mesh = evaluated_obj.to_mesh()
-          final_mesh = bpy.data.meshes.new_from_object(evaluated_obj)
-          obj_processed = bpy.data.objects.new('Tree_Processed', final_mesh)
-          bpy.context.view_layer.active_layer_collection.collection.objects.link(obj_processed)
-          # obj_new.data = final_mesh
-          
-          for poly in final_mesh.polygons:
-            position = poly.center
-            trunk_node_distances = [float('inf')]
-            trunk_node_distances.extend([
-              abs(position[0] - trunk_node_position[0]) + 
-              abs(position[1] - trunk_node_position[1]) +
-              abs(position[2] - trunk_node_position[2])
-              for trunk_node_position in trunk_node_positions
-            ])
-            branch_node_distances = [float('inf')]
-            branch_node_distances.extend([
-              abs(position[0] - branch_node_position[0]) + 
-              abs(position[1] - branch_node_position[1]) +
-              abs(position[2] - branch_node_position[2])
-              for branch_node_position in branch_node_positions
-            ])
-            if min(trunk_node_distances) < min(branch_node_distances):
-              poly.material_index = 0
-            else:
-              poly.material_index = 1
-              
-          assign_vertices_to_group(obj_new, "TrunkGroup", trunk_vertex_indices)
-          assign_vertices_to_group(obj_new, "BranchGroup", branch_vertex_indices)
-          
-          obj_processed.data.update()
-          obj_new.data.update()
-          
-          
     timings.add('modifiers')
 
     # create a particles based leaf emitter (if we have leaves and/or objects)
@@ -509,6 +450,46 @@ def createGeometry(tree, power=0.5, scale=0.01,
             obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
         
     # bpy.context.scene.objects.active = obj_new
+    
+    top = find_top_of_trunk(tree.branchpoints)
+          
+    trunk_nodes = [top]
+    
+    while trunk_nodes[-1].parent is not None:
+      trunk_nodes.append(tree.branchpoints[trunk_nodes[-1].parent])
+    
+    trunk_node_positions = [trunk_node.v for trunk_node in trunk_nodes]
+    branch_node_positions = [bp.v for bp in tree.branchpoints if bp not in trunk_nodes]
+    
+    trunk_material = create_material("TrunkMaterial", (1, 0, 0, 1)) # Red color
+    branch_material = create_material("BranchMaterial", (0, 1, 0, 1)) # Green color
+    assign_material(obj_new, trunk_material)
+    assign_material(obj_new, branch_material)
+    trunk_vertex_indices = []
+    branch_vertex_indices = []
+    # bpy.ops.object.modifier_apply(modifier="Skin")
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated_obj = obj_new.evaluated_get(depsgraph)
+    # final_mesh = evaluated_obj.to_mesh()
+    final_mesh = bpy.data.meshes.new_from_object(evaluated_obj)
+    obj_processed = bpy.data.objects.new('Tree_Processed', final_mesh)
+    bpy.context.view_layer.active_layer_collection.collection.objects.link(obj_processed)
+    # obj_new.data = final_mesh
+    
+    tree_node_kd_tree = KDTree(trunk_node_positions + branch_node_positions)
+    for poly in final_mesh.polygons:
+      position = poly.center
+      node_distance, node_index = tree_node_kd_tree.query(position, 1)
+      if node_index < len(trunk_node_positions):
+        poly.material_index = 0
+      else:
+        poly.material_index = 1
+        
+    assign_vertices_to_group(obj_new, "TrunkGroup", trunk_vertex_indices)
+    assign_vertices_to_group(obj_new, "BranchGroup", branch_vertex_indices)
+    
+    obj_processed.data.update()
+    obj_new.data.update()
     bpy.ops.object.shade_smooth()
     
     timings.add('leaves')
