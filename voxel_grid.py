@@ -1,7 +1,3 @@
-# for first time
-# import sys
-# sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
-
 import bpy
 import numpy as np
 import bmesh

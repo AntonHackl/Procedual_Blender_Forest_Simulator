@@ -19,6 +19,10 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
+# for first time
+# import sys
+# sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
+
 bl_info = {
     "name": "SCA Tree Generator",
     "author": "michel anders (varkenvarken)",
@@ -35,11 +39,7 @@ from time import time
 from random import random,gauss
 from functools import partial
 from math import sin,cos
-
-import scipy
-import numpy 
-print("Numpy version:", numpy.__version__)
-print("Scipy version:", scipy.__version__)
+import numpy as np
 
 import bpy
 from bpy.props import FloatProperty, IntProperty, BoolProperty, EnumProperty
@@ -450,17 +450,31 @@ def createGeometry(tree, power=0.5, scale=0.01,
             obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
         
     # bpy.context.scene.objects.active = obj_new
+    segmentIntoTrunkAndBranch(tree, obj_new, (np.array(radii)**power)*scale)
+    bpy.ops.object.shade_smooth()
     
+    timings.add('leaves')
+    
+    if timeperf:
+        print(timings)
+        
+    return obj_new
+
+def segmentIntoTrunkAndBranch(tree, obj_new, radii):
     top = find_top_of_trunk(tree.branchpoints)
-          
+            
     trunk_nodes = [top]
-    
-    while trunk_nodes[-1].parent is not None:
-      trunk_nodes.append(tree.branchpoints[trunk_nodes[-1].parent])
-    
+    trunk_indices = [top.index]
+
+    while trunk_nodes[-1].parent is not None:  
+        trunk_nodes.append(tree.branchpoints[trunk_nodes[-1].parent])
+        trunk_indices.append(trunk_nodes[-1].index)
+        
+
     trunk_node_positions = [trunk_node.v for trunk_node in trunk_nodes]
     branch_node_positions = [bp.v for bp in tree.branchpoints if bp not in trunk_nodes]
-    
+    branch_node_indices = [i for i in range(len(tree.branchpoints)) if i not in trunk_indices]
+
     trunk_material = create_material("TrunkMaterial", (1, 0, 0, 1)) # Red color
     branch_material = create_material("BranchMaterial", (0, 1, 0, 1)) # Green color
     assign_material(obj_new, trunk_material)
@@ -475,29 +489,24 @@ def createGeometry(tree, power=0.5, scale=0.01,
     obj_processed = bpy.data.objects.new('Tree_Processed', final_mesh)
     bpy.context.view_layer.active_layer_collection.collection.objects.link(obj_processed)
     # obj_new.data = final_mesh
-    
-    tree_node_kd_tree = KDTree(trunk_node_positions + branch_node_positions)
+
+    trunk_node_kd_tree = KDTree(trunk_node_positions)
+    branch_node_kd_tree = KDTree(branch_node_positions)
     for poly in final_mesh.polygons:
-      position = poly.center
-      node_distance, node_index = tree_node_kd_tree.query(position, 1)
-      if node_index < len(trunk_node_positions):
-        poly.material_index = 0
-      else:
-        poly.material_index = 1
+        position = poly.center
+        trunk_node_distance, trunk_node_index = trunk_node_kd_tree.query(position, 1)
+        branch_node_distance, branch_node_index = branch_node_kd_tree.query(position, 1)
+        
+        if trunk_node_distance - radii[trunk_indices[trunk_node_index]] < branch_node_distance - radii[branch_node_indices[branch_node_index]]:
+            poly.material_index = 0
+        else:
+            poly.material_index = 1
         
     assign_vertices_to_group(obj_new, "TrunkGroup", trunk_vertex_indices)
     assign_vertices_to_group(obj_new, "BranchGroup", branch_vertex_indices)
-    
+
     obj_processed.data.update()
     obj_new.data.update()
-    bpy.ops.object.shade_smooth()
-    
-    timings.add('leaves')
-    
-    if timeperf:
-        print(timings)
-        
-    return obj_new
 
 def create_inverse_graph(branchpoints):
   node_to_children = {}
