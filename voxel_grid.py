@@ -7,7 +7,10 @@ from typing import Tuple, List, Dict, Set
 
 class VoxelGrid:
   def __init__(self):
-    self.grid = np.zeros((50, 50, 50), dtype=int)
+    self.evaluated_forest = False
+    
+    
+    self.unique_grid = np.zeros((50, 50, 50), dtype=int)
     
     # for _ in range(int(20*20*20*0.8)):
     #    self.grid[random.randint(0, 19)][random.randint(0, 19)][random.randint(0, 19)] = 1
@@ -35,10 +38,10 @@ class VoxelGrid:
     # Prepare bmesh for geometry creation
     bm = bmesh.new()
 
-    for x in range(len(self.grid)):
-        for y in range(len(self.grid[x])):
-            for z in range(len(self.grid[x][y])):
-                if self.grid[x][y][z] == index:
+    for x in range(len(self.unique_grid)):
+        for y in range(len(self.unique_grid[x])):
+            for z in range(len(self.unique_grid[x][y])):
+                if self.unique_grid[x][y][z] == index:
                     self.add_voxel_to_bmesh(bm, x, y, z, index, self.cube_size)
 
     bm.to_mesh(mesh)
@@ -85,11 +88,13 @@ class VoxelGrid:
     bm.faces.new(bm_verts)
   
   def is_filled(self, x, y, z, index):
-    if not (0 <= x < len(self.grid) and 0 <= y < len(self.grid[x]) and 0 <= z < len(self.grid[x][y])):
+    if not (0 <= x < len(self.unique_grid) and 0 <= y < len(self.unique_grid[x]) and 0 <= z < len(self.unique_grid[x][y])):
       return False 
-    return self.grid[x][y][z] == index
+    return self.unique_grid[x][y][z] == index
   
-  def add_tree(self, position: Tuple[int, int, int], stem_diameter: float, stem_height: float, crown_diameter: float):
+  def add_tree(self, position: Tuple[int, int, int], stem_diameter: float, stem_height: float, crown_diameter: float, tree_index: int):
+    self.evaluated_forest = False
+    
     x, y, z = position
     x = int(x / self.cube_size)
     y = int(y / self.cube_size)
@@ -104,14 +109,14 @@ class VoxelGrid:
     mask = j**2 + k**2 <= stem_radius**2
 
     for i in stem_height_range:
-        self.grid[x + j[mask], y + k[mask], z + i] = 1
+        self.unique_grid[x + j[mask], y + k[mask], z + i] = tree_index
 
     # Add crown
     crown_range = np.arange(-int(crown_diameter / self.cube_size), int(crown_diameter / self.cube_size))
     i, j, k = np.meshgrid(crown_range, crown_range, crown_range, indexing='ij')
     mask = i**2 + j**2 + k**2 <= crown_radius**2
 
-    self.grid[x + j[mask], y + k[mask], z + i[mask] + int((stem_height+crown_diameter/2) / self.cube_size)] = 1
+    self.unique_grid[x + j[mask], y + k[mask], z + i[mask] + int((stem_height+crown_diameter/2) / self.cube_size)] = tree_index
     # # Add stem
     # for i in range(-int(stem_height / self.cube_size), int(stem_height / self.cube_size)):
     #   for j in range(-int(stem_diameter / self.cube_size), int(stem_diameter / self.cube_size)):
@@ -127,6 +132,13 @@ class VoxelGrid:
     #     for k in range(-int(crown_diameter / self.cube_size), int(crown_diameter / self.cube_size)):
     #       if i*i+j*j+k*k <= crown_radius*crown_radius*crown_radius:
     #         self.grid[x + j][y + k][z + i + int(stem_height + crown_radius / self.cube_size)] = 1
+    
+    
+  def evaluate_forest(self):
+    self.evaluated_forest = True
+    
+    
+    
   
   def greedy_meshing(self, index: int):
     quads = self.capture_quads(index)
@@ -168,7 +180,7 @@ class VoxelGrid:
     return obj
   
   def capture_quads(self, index: int):
-    instance_matrix = np.copy(self.grid)
+    instance_matrix = np.copy(self.unique_grid)
     
     instance_matrix[instance_matrix != index] = 0
     

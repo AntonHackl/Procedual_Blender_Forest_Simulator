@@ -792,7 +792,9 @@ class SCATree(bpy.types.Operator):
 
           if not (bpy.data.collections.get("TestA") and any(obj.name == "VoxelObject" for obj in bpy.data.collections["TestA"].objects)):
             voxel_grid = VoxelGrid()
-            voxel_grid.add_tree((5, 5, 5), 1, 4, 5)
+            voxel_grid.add_tree((5, 5, 0), 1, 4, 5, 1)
+            voxel_grid.add_tree((5, 7, 0), 1, 4, 5, 2)
+            
             # obj = voxel_grid.generate_mesh(1)
             obj = voxel_grid.greedy_meshing(1)
             obj.location = (-5, -5, -5)
