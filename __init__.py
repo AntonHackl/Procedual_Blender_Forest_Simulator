@@ -739,6 +739,13 @@ class SCATree(bpy.types.Operator):
         # Check if we are in object mode
         return context.mode == 'OBJECT'
 
+    def create_random_material(self, name):
+        mat = bpy.data.materials.new(name)
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes["Principled BSDF"]
+        bsdf.inputs['Base Color'].default_value = (random(), random(), random(), 1)
+        return mat
+
     def execute(self, context):
         
         # we load this library matrial unconditionally, i.e. each time we execute() which sounds like a waste
@@ -790,22 +797,41 @@ class SCATree(bpy.types.Operator):
             # # Link the object to the collection
             # collection.objects.link(obj)
 
-          if not (bpy.data.collections.get("TestA") and any(obj.name == "VoxelObject" for obj in bpy.data.collections["TestA"].objects)):
+          if not (bpy.data.collections.get("TestA") and any("VoxelObject" in obj.name for obj in bpy.data.collections["TestA"].objects)):
             voxel_grid = VoxelGrid()
-            voxel_grid.add_tree((5, 5, 0), 1, 4, 5, 1)
-            voxel_grid.add_tree((5, 7, 0), 1, 4, 5, 2)
+            
+            for position in [(12, 8, 0), (20, 12, 0), (12, 6, 0), (20, 2, 0), (2, 20, 0), (20, 16, 0), (8, 14, 0), (18, 14, 0), (2, 6, 0), (6, 6, 0)]:
+                voxel_grid.add_tree(position, 1, 4, 6)
+            # voxel_grid.add_tree((5, 5, 0), 1, 4, 5)
+            # voxel_grid.add_tree((5, 7, 0), 1, 4, 5)
             
             # obj = voxel_grid.generate_mesh(1)
-            obj = voxel_grid.greedy_meshing(1)
-            obj.location = (-5, -5, -5)
-            collection = bpy.data.collections.get("TestA")
-            if not collection:
-                collection = bpy.data.collections.new("TestA")
-                bpy.context.scene.collection.children.link(collection)
+            for i in range(10):
+                # obj = voxel_grid.greedy_meshing(i)
+                obj = voxel_grid.generate_mesh(i)
+                # obj.location = (-2.5, -2.5, 0)
+                collection = bpy.data.collections.get("TestA")
+                if not collection:
+                    collection = bpy.data.collections.new("TestA")
+                    bpy.context.scene.collection.children.link(collection)
+                
+                material = self.create_random_material(f"Material_{i}")
+                if obj.data.materials:
+                    obj.data.materials[0] = material
+                else:
+                    obj.data.materials.append(material)    
+                
+                collection.objects.link(obj)
+                bpy.context.view_layer.update()
+            # obj = voxel_grid.greedy_meshing(0)
+            # # obj.location = (-2.5, -2.5, 0)
+            # collection = bpy.data.collections.get("TestA")
+            # if not collection:
+            #     collection = bpy.data.collections.new("TestA")
+            #     bpy.context.scene.collection.children.link(collection)
+            # collection.objects.link(obj)
+            # bpy.context.view_layer.update()
             
-            collection.objects.link(obj)
-            bpy.context.view_layer.update()
-
             size,minp = groupExtends(self.crownGroup)
             volumefie=partial(groupdistribution,self.crownGroup,self.shadowGroup,self.shadowDensity,self.randomSeed,size,minp-bpy.context.scene.cursor.location)
         else:
