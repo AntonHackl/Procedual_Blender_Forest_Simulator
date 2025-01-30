@@ -36,7 +36,7 @@ class VoxelGrid:
       self.evaluate_forest()
     
     mesh = bpy.data.meshes.new("VoxelMesh")
-    obj = bpy.data.objects.new(f"VoxelObject_{index}", mesh)
+    obj = bpy.data.objects.new(f"VoxelObject_{index}_n", mesh)
 
     # verts, faces, _, _ = marching_cubes(self.grid, level=0.9999)    
 
@@ -131,21 +131,6 @@ class VoxelGrid:
     
     # self.trees.append((int(position[0] / self.cube_size) - len(tree_grid)//2, int(position[1] / self.cube_size) - len(tree_grid[0])//2, int(position[2] / self.cube_size), tree_grid))
     self.trees.append((int(position[0] / self.cube_size), int(position[1] / self.cube_size), int(position[2] / self.cube_size), tree_grid))
-    # # Add stem
-    # for i in range(-int(stem_height / self.cube_size), int(stem_height / self.cube_size)):
-    #   for j in range(-int(stem_diameter / self.cube_size), int(stem_diameter / self.cube_size)):
-    #     for k in range(-int(stem_diameter / self.cube_size), int(stem_diameter / self.cube_size)):
-    #         if j*j + k*k <= stem_radius*stem_radius:
-    #             self.grid[x + j][y + k][z + i] = 1
-    
-    
-
-    # # Add crown
-    # for i in range(-int(crown_diameter / self.cube_size), int(crown_diameter / self.cube_size)):
-    #   for j in range(-int(crown_diameter / self.cube_size), int(crown_diameter / self.cube_size)):
-    #     for k in range(-int(crown_diameter / self.cube_size), int(crown_diameter / self.cube_size)):
-    #       if i*i+j*j+k*k <= crown_radius*crown_radius*crown_radius:
-    #         self.grid[x + j][y + k][z + i + int(stem_height + crown_radius / self.cube_size)] = 1
     
     
   def evaluate_forest(self):
@@ -192,9 +177,9 @@ class VoxelGrid:
     tree_2_collision_edge_cells = self.get_collision_edge_cells(tree2_grid, tree2_collision_cells)
     
     # set cells to 2 to distinguish them from other filled cells
-    tree1_grid[tree1_collision_cells[:, 0], tree1_collision_cells[:, 1], tree1_collision_cells[:, 2]] = 2
-    tree2_grid[tree2_collision_cells[:, 0], tree2_collision_cells[:, 1], tree2_collision_cells[:, 2]] = 2
-    
+    tree1_grid[tree1_collision_cells[:, 0], tree1_collision_cells[:, 1], tree1_collision_cells[:, 2]] = 1
+    tree2_grid[tree2_collision_cells[:, 0], tree2_collision_cells[:, 1], tree2_collision_cells[:, 2]] = 0
+    # return 
     # trimmed_mask = self.trim_mask(tree2_grid, tree1_filled_cells)
     # print(np.sum(tree2_grid[trimmed_mask[:, 0], trimmed_mask[:, 1], trimmed_mask[:, 2]]))
     # tree1_set = set(map(tuple, np.argwhere(tree1_grid == 1) + np.array([x1, y1, z1])))
@@ -216,13 +201,6 @@ class VoxelGrid:
     lower_limit = np.array([0, 0, 0])
     upper_limit = np.array([len(tree_grid), len(tree_grid[0]), len(tree_grid[0][0])])
     tree_contains_cell = np.all(mask >= lower_limit, axis=1) & np.all(mask < upper_limit, axis=1)
-    
-    tree_contains_cell = []
-    for i in range(len(mask)):
-      if mask[i][0] >= 0 and mask[i][1] >= 0 and mask[i][2] >= 0 and mask[i][0] < len(tree_grid) and mask[i][1] < len(tree_grid[0]) and mask[i][2] < len(tree_grid[0][0]):
-        tree_contains_cell.append(True)
-      else:
-        tree_contains_cell.append(False)
     
     return mask[np.array(tree_contains_cell)]
     
@@ -261,6 +239,9 @@ class VoxelGrid:
     rounds = 5
     min_radius = 1
     max_radius = 3
+    
+    if len(tree1_collision_edge_cells) == 0 or len(tree2_collision_edge_cells) == 0:
+      return
   
     random.seed(7e4)
     for round in range(rounds):
@@ -339,20 +320,38 @@ class VoxelGrid:
     
     for quad in quads:
       x_start, y_start, z_start, x_end, y_end, z_end = quad
-      x_end += 1
-      y_end += 1
-      z_end += 1 
+      # x_end += 1
+      # y_end += 1
+      # z_end += 1 
+      x_start_position = x_start * self.cube_size - self.cube_size / 2
+      y_start_postion = y_start * self.cube_size - self.cube_size / 2
+      z_start_position = z_start * self.cube_size - self.cube_size / 2
+      x_end_position = x_end * self.cube_size + self.cube_size / 2
+      y_end_position = y_end * self.cube_size + self.cube_size / 2
+      z_end_position = z_end * self.cube_size + self.cube_size / 2
+      
+      # verts = [
+      #   (x_start_position, y_start * self.cube_size - self.cube_size / 2, z_start * self.cube_size - self.cube_size / 2),
+      #   (x_end * self.cube_size, y_start * self.cube_size, z_start * self.cube_size),
+      #   (x_end * self.cube_size, y_end * self.cube_size, z_start * self.cube_size),
+      #   (x_start * self.cube_size, y_end * self.cube_size, z_start * self.cube_size),
+      #   (x_start * self.cube_size, y_start * self.cube_size, z_end * self.cube_size),
+      #   (x_end * self.cube_size, y_start * self.cube_size, z_end * self.cube_size),
+      #   (x_end * self.cube_size, y_end * self.cube_size, z_end * self.cube_size),
+      #   (x_start * self.cube_size, y_end * self.cube_size, z_end * self.cube_size)
+      # ]
       
       verts = [
-        (x_start * self.cube_size, y_start * self.cube_size, z_start * self.cube_size),
-        (x_end * self.cube_size, y_start * self.cube_size, z_start * self.cube_size),
-        (x_end * self.cube_size, y_end * self.cube_size, z_start * self.cube_size),
-        (x_start * self.cube_size, y_end * self.cube_size, z_start * self.cube_size),
-        (x_start * self.cube_size, y_start * self.cube_size, z_end * self.cube_size),
-        (x_end * self.cube_size, y_start * self.cube_size, z_end * self.cube_size),
-        (x_end * self.cube_size, y_end * self.cube_size, z_end * self.cube_size),
-        (x_start * self.cube_size, y_end * self.cube_size, z_end * self.cube_size)
+        (x_start_position, y_start_postion, z_start_position),
+        (x_end_position, y_start_postion, z_start_position),
+        (x_end_position, y_end_position, z_start_position),
+        (x_start_position, y_end_position, z_start_position),
+        (x_start_position, y_start_postion, z_end_position),
+        (x_end_position, y_start_postion, z_end_position),
+        (x_end_position, y_end_position, z_end_position),
+        (x_start_position, y_end_position, z_end_position)
       ]
+      
       bm_verts = [bm.verts.new(v) for v in verts]
 
       # Create faces for the quad
@@ -458,9 +457,9 @@ class VoxelGrid:
     end_x, end_y, end_z = np.where(diff_x < 0)
     
     border_positions = list(zip(start_x, start_y, start_z, np.zeros(len(start_x))))
-    border_positions.extend(zip(end_x, end_y, end_z, np.ones(len(end_x))))
+    border_positions.extend(zip(end_x - 1, end_y, end_z, np.ones(len(end_x))))
     
-    sorted_start_and_end = sorted(border_positions, key=lambda x: x[0])
+    sorted_start_and_end = sorted(border_positions, key=lambda x: (x[0], x[3]))
     
     start_map: Dict[Tuple[int, int], int] = {}
     

@@ -20,8 +20,8 @@
 # ##### END GPL LICENSE BLOCK #####
 
 # for first time
-# import sys
-# sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
+import sys
+sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
 
 bl_info = {
     "name": "SCA Tree Generator",
@@ -37,6 +37,7 @@ bl_info = {
 
 from time import time
 from random import random,gauss
+import random as ra
 from functools import partial
 from math import sin,cos
 import numpy as np
@@ -800,15 +801,16 @@ class SCATree(bpy.types.Operator):
           if not (bpy.data.collections.get("TestA") and any("VoxelObject" in obj.name for obj in bpy.data.collections["TestA"].objects)):
             voxel_grid = VoxelGrid()
             
-            for position in [(12, 8, 0), (20, 12, 0), (12, 6, 0), (20, 2, 0), (2, 20, 0), (20, 16, 0), (8, 14, 0), (18, 14, 0), (2, 6, 0), (6, 6, 0)]:
+            num_trees = 30
+            for position in [(ra.randint(0, 10), ra.randint(0, 10), 0) for _ in range(num_trees)]:
                 voxel_grid.add_tree(position, 1, 4, 6)
             # voxel_grid.add_tree((5, 5, 0), 1, 4, 5)
             # voxel_grid.add_tree((5, 7, 0), 1, 4, 5)
             
             # obj = voxel_grid.generate_mesh(1)
-            for i in range(10):
-                # obj = voxel_grid.greedy_meshing(i)
-                obj = voxel_grid.generate_mesh(i)
+            for i in range(num_trees):
+                obj = voxel_grid.greedy_meshing(i)
+                # obj = voxel_grid.generate_mesh(i)
                 # obj.location = (-2.5, -2.5, 0)
                 collection = bpy.data.collections.get("TestA")
                 if not collection:
@@ -823,6 +825,23 @@ class SCATree(bpy.types.Operator):
                 
                 collection.objects.link(obj)
                 bpy.context.view_layer.update()
+                
+                # obj = voxel_grid.greedy_meshing(i)
+                # obj = voxel_grid.generate_mesh(i)
+                # # obj.location = (-2.5, -2.5, 0)
+                # collection = bpy.data.collections.get("TestA")
+                # if not collection:
+                #     collection = bpy.data.collections.new("TestA")
+                #     bpy.context.scene.collection.children.link(collection)
+                
+                # material = self.create_random_material(f"Material_{i}")
+                # if obj.data.materials:
+                #     obj.data.materials[0] = material
+                # else:
+                #     obj.data.materials.append(material)    
+                
+                # collection.objects.link(obj)
+                # bpy.context.view_layer.update()
             # obj = voxel_grid.greedy_meshing(0)
             # # obj.location = (-2.5, -2.5, 0)
             # collection = bpy.data.collections.get("TestA")
