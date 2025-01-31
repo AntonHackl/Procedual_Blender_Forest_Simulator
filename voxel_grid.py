@@ -161,9 +161,6 @@ class VoxelGrid:
     x1, y1, z1, tree1_grid = tree1
     x2, y2, z2, tree2_grid = tree2
     
-    # tree1_grid[tree1_grid == 2] = 0
-    # tree2_grid[tree2_grid == 2] = 0
-    
     translation = np.array([x1 - x2, y1 - y2, z1 - z2])
     
     tree1_filled_cells = np.argwhere(tree1_grid == 1)
@@ -178,19 +175,13 @@ class VoxelGrid:
       return
     
     tree1_collision_edge_cells = self.get_collision_edge_cells(tree1_grid, tree2_collision_cells - translation)
-    tree_2_collision_edge_cells = self.get_collision_edge_cells(tree2_grid, tree2_collision_cells)
+    tree2_collision_edge_cells = self.get_collision_edge_cells(tree2_grid, tree2_collision_cells)
     
     # set cells to 2 to distinguish them from other filled cells
     tree1_grid[tree1_collision_cells[:, 0], tree1_collision_cells[:, 1], tree1_collision_cells[:, 2]] = 2
     tree2_grid[tree2_collision_cells[:, 0], tree2_collision_cells[:, 1], tree2_collision_cells[:, 2]] = 2
-    # return 
-    # trimmed_mask = self.trim_mask(tree2_grid, tree1_filled_cells)
-    # print(np.sum(tree2_grid[trimmed_mask[:, 0], trimmed_mask[:, 1], trimmed_mask[:, 2]]))
-    # tree1_set = set(map(tuple, np.argwhere(tree1_grid == 1) + np.array([x1, y1, z1])))
-    # tree2_set = set(map(tuple, np.argwhere(tree2_grid == 1) + np.array([x2, y2, z2])))
-    # print(tree1_set.intersection(tree2_set))
     
-    self.assign_collision_cells(tree1_grid, tree2_grid, tree1_collision_edge_cells, tree_2_collision_edge_cells, translation)
+    self.assign_collision_cells(tree1_grid, tree2_grid, tree1_collision_edge_cells, tree2_collision_edge_cells, translation)
   
   def get_colliding_cells(self, tree_grid: np.ndarray, filled_translated_cells: np.ndarray):
     contained_cells = self.trim_mask(tree_grid, filled_translated_cells)
@@ -203,7 +194,7 @@ class VoxelGrid:
   def trim_mask(self, tree_grid: np.ndarray, mask: np.ndarray):
     # get only the indices that are within the tree
     lower_limit = np.array([0, 0, 0])
-    upper_limit = np.array([len(tree_grid), len(tree_grid[0]), len(tree_grid[0][0])])
+    upper_limit = np.array([tree_grid.shape[0], tree_grid.shape[1], tree_grid.shape[2]])
     tree_contains_cell = np.all(mask >= lower_limit, axis=1) & np.all(mask < upper_limit, axis=1)
     
     return mask[tree_contains_cell]
@@ -219,18 +210,11 @@ class VoxelGrid:
     # Get all neighbors
     neighbors = collision_cells[:, None, :] + neighbor_offsets[None, :, :]
     neighbors = neighbors.reshape(-1, 3)
-    
-    # Filter out neighbors that are out of bounds
-    valid_mask = (
-        (neighbors[:, 0] >= 0) & (neighbors[:, 0] < tree_grid.shape[0]) &
-        (neighbors[:, 1] >= 0) & (neighbors[:, 1] < tree_grid.shape[1]) &
-        (neighbors[:, 2] >= 0) & (neighbors[:, 2] < tree_grid.shape[2])
-    )
-    valid_neighbors = neighbors[valid_mask]
+    neighbors = self.trim_mask(tree_grid, neighbors)
     
     # Filter out neighbors that are not edge cells
-    edge_mask = tree_grid[valid_neighbors[:, 0], valid_neighbors[:, 1], valid_neighbors[:, 2]] == 1
-    edge_cells = valid_neighbors[edge_mask]
+    edge_mask = tree_grid[neighbors[:, 0], neighbors[:, 1], neighbors[:, 2]] == 1
+    edge_cells = neighbors[edge_mask]
     
     return edge_cells
   
@@ -245,9 +229,10 @@ class VoxelGrid:
     max_radius = 3
     
     if len(tree1_collision_edge_cells) == 0 or len(tree2_collision_edge_cells) == 0:
+      self.assign_rest_of_collision_cells(tree1_grid, tree2_grid, translation)
       return
   
-    random.seed(7e4)
+    # random.seed(7e4)
     for round in range(rounds):
       sphere_radius = random.randint(min_radius, max_radius)
       sphere_cells = self.get_cells_for_sphere(sphere_radius)
@@ -255,17 +240,21 @@ class VoxelGrid:
       collision_edge_cell = random.choice(tree1_collision_edge_cells)
       mask = self.trim_mask(tree2_grid, sphere_cells + (collision_edge_cell + translation))
       mask = self.trim_mask(tree1_grid, mask - translation)
-      t1 = self.add_collision_cells_to_tree(tree1_grid, mask)
-      t2 = self.subtract_collision_cells_from_tree(tree2_grid, mask + translation, t1)
-      if len(t1) != len(t2):
-        print('woah')
+      conflicted_contained_cells = mask[tree1_grid[mask[:, 0], mask[:, 1], mask[:, 2]] == 2]
+      tree1_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = 1
+      
+      conflicted_contained_cells = conflicted_contained_cells + translation
+      tree2_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = 0
+
       collision_edge_cell = random.choice(tree2_collision_edge_cells)
       mask = self.trim_mask(tree1_grid, sphere_cells + (collision_edge_cell - translation))
       mask = self.trim_mask(tree2_grid, mask + translation)
-      t1 = self.add_collision_cells_to_tree(tree2_grid, mask)
-      t2 = self.subtract_collision_cells_from_tree(tree1_grid, mask - translation, t1)
-      if len(t1) != len(t2):
-        print('woah')
+      
+      conflicted_contained_cells = mask[tree2_grid[mask[:, 0], mask[:, 1], mask[:, 2]] == 2]
+      tree2_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = 1
+      
+      conflicted_contained_cells = conflicted_contained_cells - translation
+      tree1_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = 0
       
     self.assign_rest_of_collision_cells(tree1_grid, tree2_grid, translation)
       
@@ -306,12 +295,13 @@ class VoxelGrid:
                                      tree2_grid: np.ndarray,
                                      translation: np.ndarray):
     tree1_collision_cells = np.argwhere(tree1_grid == 2)
+
     mask = (tree1_grid != 1)
     tree1_distances = distance_transform_edt(mask)
     tree1_conflicted_distances = tree1_distances[tree1_collision_cells[:, 0], tree1_collision_cells[:, 1], tree1_collision_cells[:, 2]]
     
-    tree2_collision_cells = np.argwhere(tree2_grid == 2)
-    # tree2_collision_cells = tree1_collision_cells + translation
+    # tree2_collision_cells = np.argwhere(tree2_grid == 2)
+    tree2_collision_cells = tree1_collision_cells + translation
     mask = (tree2_grid != 1)
     tree2_distances = distance_transform_edt(mask)
     tree2_conflicted_distances = tree2_distances[tree2_collision_cells[:, 0], tree2_collision_cells[:, 1], tree2_collision_cells[:, 2]]
@@ -328,6 +318,8 @@ class VoxelGrid:
     tree2_grid[tree2_cells_closer[:, 0], tree2_cells_closer[:, 1], tree2_cells_closer[:, 2]] = 1
     tree2_grid[tree2_cells_farther[:, 0], tree2_cells_farther[:, 1], tree2_cells_farther[:, 2]] = 0
     
+    tree2_grid[tree2_cells_farther[:, 0], tree2_cells_farther[:, 1], tree2_cells_farther[:, 2]] = 0
+    
   def greedy_meshing(self, index: int):
     if not self.evaluated_forest:
       self.evaluate_forest()
@@ -342,26 +334,13 @@ class VoxelGrid:
     
     for quad in quads:
       x_start, y_start, z_start, x_end, y_end, z_end = quad
-      # x_end += 1
-      # y_end += 1
-      # z_end += 1 
+      
       x_start_position = x_start * self.cube_size - self.cube_size / 2
       y_start_postion = y_start * self.cube_size - self.cube_size / 2
       z_start_position = z_start * self.cube_size - self.cube_size / 2
       x_end_position = x_end * self.cube_size + self.cube_size / 2
       y_end_position = y_end * self.cube_size + self.cube_size / 2
       z_end_position = z_end * self.cube_size + self.cube_size / 2
-      
-      # verts = [
-      #   (x_start_position, y_start * self.cube_size - self.cube_size / 2, z_start * self.cube_size - self.cube_size / 2),
-      #   (x_end * self.cube_size, y_start * self.cube_size, z_start * self.cube_size),
-      #   (x_end * self.cube_size, y_end * self.cube_size, z_start * self.cube_size),
-      #   (x_start * self.cube_size, y_end * self.cube_size, z_start * self.cube_size),
-      #   (x_start * self.cube_size, y_start * self.cube_size, z_end * self.cube_size),
-      #   (x_end * self.cube_size, y_start * self.cube_size, z_end * self.cube_size),
-      #   (x_end * self.cube_size, y_end * self.cube_size, z_end * self.cube_size),
-      #   (x_start * self.cube_size, y_end * self.cube_size, z_end * self.cube_size)
-      # ]
       
       verts = [
         (x_start_position, y_start_postion, z_start_position),
