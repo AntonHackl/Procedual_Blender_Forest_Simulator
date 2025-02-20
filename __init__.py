@@ -18,6 +18,7 @@ import random
 from functools import partial
 from math import sin,cos
 import numpy as np
+import csv
 
 import bpy
 from bpy.props import FloatProperty, IntProperty, BoolProperty, EnumProperty
@@ -38,6 +39,52 @@ bl_info = {
   "tracker_url": "",
   "category": "Add Mesh"}
 
+def poisson_disk_sampling(width, height, radius, k=30):
+  def distance(p1, p2):
+    return np.linalg.norm(np.array(p1) - np.array(p2))
+
+  def in_circle(point, radius, points):
+    for p in points:
+      if distance(point, p) < radius:
+        return True
+    return False
+
+  def generate_random_point_around(point, radius):
+    r1 = random.random()
+    r2 = random.random()
+    radius = radius * (r1 + 1)
+    angle = 2 * np.pi * r2
+    new_x = point[0] + radius * np.cos(angle)
+    new_y = point[1] + radius * np.sin(angle)
+    return (new_x, new_y)
+
+  grid = [[None for _ in range(height)] for _ in range(width)]
+  cell_size = radius / np.sqrt(2)
+  active_list = []
+  points = []
+
+  initial_point = (random.uniform(0, width), random.uniform(0, height))
+  points.append(initial_point)
+  active_list.append(initial_point)
+  grid[int(initial_point[0] // cell_size)][int(initial_point[1] // cell_size)] = initial_point
+
+  while active_list:
+      idx = random.randint(0, len(active_list) - 1)
+      point = active_list[idx]
+      found = False
+      for _ in range(k):
+          new_point = generate_random_point_around(point, radius)
+          if 0 <= new_point[0] < width and 0 <= new_point[1] < height and not in_circle(new_point, radius, points):
+              points.append(new_point)
+              active_list.append(new_point)
+              grid[int(new_point[0] // cell_size)][int(new_point[1] // cell_size)] = new_point
+              found = True
+              break
+      if not found:
+          active_list.pop(idx)
+
+  return points
+
 class ForestGenerator(bpy.types.Operator):
   bl_idname = "mesh.forest_generator"
   bl_label = "Forest Generator"
@@ -57,6 +104,8 @@ class ForestGenerator(bpy.types.Operator):
     min=1,
   )
 
+  surface: bpy.props.StringProperty(name="Surface File", description="Path to the file", subtype='FILE_PATH')
+  
   treeCount: bpy.props.IntProperty(
     name="Tree Count",
     description="Number of trees to generate",
@@ -88,17 +137,35 @@ class ForestGenerator(bpy.types.Operator):
     box.prop(self, 'forestXExtend')
     box.prop(self, 'forestYExtend')
     box.prop(self, 'treeCount')
+    box.prop(self, 'surface')
     
   def execute(self, context):
     if not (self.updateTree or self.samePosUpdate):
       return {'FINISHED'}
     
-    voxel_grid = VoxelGrid()
-    # problem pair: (5, 21)
-    for position in [(random.randint(0, self.forestXExtend), random.randint(0, self.forestYExtend), 0) for _ in range(self.treeCount)]:
-      voxel_grid.add_tree(position, 1, 4, 6)
+    csv_data = []
+    if '.csv' in self.surface:
+      with open(self.surface) as csvfile:
+        csv_reader = csv.reader(csvfile, delimiter=',')
+        for row in csv_reader:
+            csv_data.append([int(value) for value in row])
     
-    tree_mesh_groups = [voxel_grid.generate_mesh_groups(i) for i in range(self.treeCount)]
+    min_x = min([point[0] for point in csv_data])
+    max_x = max([point[0] for point in csv_data])
+    min_y = min([point[1] for point in csv_data])
+    max_y = max([point[1] for point in csv_data])
+
+    # Perform Poisson disk sampling within the bounding box
+    sampled_points = poisson_disk_sampling(max_x - min_x, max_y - min_y, radius=3)
+
+    # Translate sampled points to the polygon's coordinate space
+    translated_points = [(point[0] + min_x, point[1] + min_y) for point in sampled_points]
+
+    voxel_grid = VoxelGrid()
+    for position in translated_points:
+        voxel_grid.add_tree((position[0], position[1], 0), 1, 4, 6)
+
+    tree_mesh_groups = [voxel_grid.generate_mesh_groups(i) for i in range(len(translated_points))]
     
     rest_collection = bpy.data.collections.get("Rest")
     if not rest_collection:
