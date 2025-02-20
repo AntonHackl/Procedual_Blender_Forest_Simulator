@@ -810,7 +810,7 @@ class SCATree(bpy.types.Operator):
             # obj = voxel_grid.generate_mesh(1)
             for i in range(num_trees):
                 # obj = voxel_grid.greedy_meshing(i)
-                obj = voxel_grid.generate_mesh(i)
+                obj = voxel_grid.generate_crown_mesh(i)
                 # obj.location = (-2.5, -2.5, 0)
                 collection = bpy.data.collections.get("TestA")
                 if not collection:

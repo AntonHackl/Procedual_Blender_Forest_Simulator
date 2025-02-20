@@ -60,11 +60,12 @@ class ForestGenerator(bpy.types.Operator):
   treeCount: bpy.props.IntProperty(
     name="Tree Count",
     description="Number of trees to generate",
-    default=5,
+    default=1,
     min=1,
   )
 
   updateTree: bpy.props.BoolProperty(name="Update Tree", default=False)
+  samePosUpdate: bpy.props.BoolProperty(name="Same Position Update Tree", default=False)
 
   @classmethod
   def poll(self, context):
@@ -81,41 +82,59 @@ class ForestGenerator(bpy.types.Operator):
     col2=columns.column()
     
     box = col1.box()
+    box.prop(self, 'updateTree', icon='MESH_DATA')
+    box.prop(self, 'samePosUpdate', icon='MESH_DATA')
     box.label(text="Generation Settings:")
     box.prop(self, 'forestXExtend')
     box.prop(self, 'forestYExtend')
     box.prop(self, 'treeCount')
     
   def execute(self, context):
+    if not (self.updateTree or self.samePosUpdate):
+      return {'FINISHED'}
+    
     voxel_grid = VoxelGrid()
     # problem pair: (5, 21)
     for position in [(random.randint(0, self.forestXExtend), random.randint(0, self.forestYExtend), 0) for _ in range(self.treeCount)]:
       voxel_grid.add_tree(position, 1, 4, 6)
     
-    tree_objects = [voxel_grid.generate_mesh(i) for i in range(self.treeCount)]
+    tree_mesh_groups = [voxel_grid.generate_mesh_groups(i) for i in range(self.treeCount)]
     
     rest_collection = bpy.data.collections.get("Rest")
     if not rest_collection:
       rest_collection = bpy.data.collections.new("Rest")
       bpy.context.scene.collection.children.link(rest_collection)
-    
-    for i, tree_object in enumerate(tree_objects):
+      
+    crown_collection = bpy.data.collections.get("Crown")
+    if not crown_collection:
+      crown_collection = bpy.data.collections.new("Crown")
+      bpy.context.scene.collection.children.link(crown_collection)
+      
+    exlusion_collection = bpy.data.collections.get("Exclusion")
+    if not exlusion_collection:
+      exlusion_collection = bpy.data.collections.new("Exclusion")
+      bpy.context.scene.collection.children.link(exlusion_collection)
+
+    for i, mesh_groups in enumerate(tree_mesh_groups):
       material = self.create_random_material(f"Material_{i}")
-      if tree_object.data.materials:
-        tree_object.data.materials[0] = material
+      if mesh_groups[1].data.materials:
+        mesh_groups[1].data.materials[0] = material
       else:
-        tree_object.data.materials.append(material)
-      rest_collection.objects.link(tree_object)
+        mesh_groups[1].data.materials.append(material)
+      rest_collection.objects.link(mesh_groups[0])
+      # rest_collection.objects.link(mesh_groups[1])
     
-    processing_collection = bpy.data.collections.get("Processing")
-    if not processing_collection:
-      processing_collection = bpy.data.collections.new("Processing")
-      bpy.context.scene.collection.children.link(processing_collection)
-    
-    for i, tree_object in enumerate(tree_objects):
+    for i, mesh_groups in enumerate(tree_mesh_groups):
       bpy.context.view_layer.update()
-      rest_collection.objects.unlink(tree_object)
-      processing_collection.objects.link(tree_object)
+      rest_collection.objects.unlink(mesh_groups[0])
+      # rest_collection.objects.unlink(mesh_groups[1])
+      crown_collection.objects.link(mesh_groups[0])
+      # exlusion_collection.objects.link(mesh_groups[1])
+      bpy.context.view_layer.update()
+      
+      tree_location = mesh_groups[0].location.copy()
+      # mesh_groups[0].location = mesh_groups[1].location = (-3, -3, 0)
+      bpy.context.scene.cursor.location = Vector((tree_location[0] + 3, tree_location[1] + 3, tree_location[2]))
       bpy.context.view_layer.update()
       
       sca_tree = SCATree(
@@ -124,19 +143,24 @@ class ForestGenerator(bpy.types.Operator):
         interNodeLength=0.25,
         killDistance=0.1,
         useGroups=True,
-        crownGroup="Processing",
+        crownGroup="Crown",
+        exclusionGroup="Rest",
         noModifiers=False,
         subSurface=True,
         randomSeed=random.randint(0, 1_000_000),
       )
-      
-      tree_location = tree_object.location.copy()
-      tree_object.location = (-3, -3, 0)
       tree_mesh = sca_tree.create_tree(context)
       
-      tree_object.location = (tree_location[0] - 3, tree_location[1] - 3, tree_location[2])
-      tree_mesh.location = tree_location
+      tree_mesh.location = bpy.context.scene.cursor.location.copy()
+      
+      crown_collection.objects.unlink(mesh_groups[0])
+      # exlusion_collection.objects.unlink(mesh_groups[1])
+      rest_collection.objects.link(mesh_groups[0])
+      # rest_collection.objects.link(mesh_groups[1])
       bpy.context.view_layer.update()
+      
+    self.updateTree = False
+    self.samePosUpdate = False
     
     return {'FINISHED'}
         
@@ -149,7 +173,7 @@ class ForestGenerator(bpy.types.Operator):
             
 def menu_func(self, context):
   self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest",
-                                          icon='PLUGIN').updateTree = True
+                                          icon='PLUGIN').updateTree = False
 
 def register():
   bpy.utils.register_class(ForestGenerator)

@@ -2,10 +2,19 @@ import bpy
 import numpy as np
 import bmesh
 import random
+from enum import Enum
 from skimage.measure import marching_cubes
 from typing import Tuple, List, Dict, Set
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
+
+class CellType(Enum):
+  no_tree = 0
+  stem = 1
+  crown = 2
+  collision = 3
+  assigned_tree_1 = 4
+  assigned_tree_2 = 5
 
 class VoxelGrid:
   """
@@ -22,24 +31,22 @@ class VoxelGrid:
     # The first three elements of this tuple are the position of the tree, with the position of the tree being the position of the stem.
     # This position is in the middle of the grid (4th element). This does not need to be true when the crown is asymmetrical.
     self.trees: List[Tuple[int, int, int, np.ndarray]] = []
-    
-    self.unique_grid = np.zeros((50, 50, 50), dtype=int)
 
     self.cube_size = 0.5
 
-  def generate_mesh(self, index):
+  def generate_mesh_groups(self, index):
     if not self.evaluated_forest:
       self.evaluate_forest()
+      
+    crown_mesh = self.generate_crown_mesh(index)
+    hull_mesh = self.generate_hull_mesh(index)
     
-    mesh = bpy.data.meshes.new("VoxelMesh")
-    obj = bpy.data.objects.new(f"Tree_Voxel_{index}", mesh)
+    return crown_mesh, hull_mesh
+    
+  def generate_crown_mesh(self, index):
+    mesh = bpy.data.meshes.new("CrownMesh")
+    obj = bpy.data.objects.new(f"Crown_Voxel_{index}", mesh)
 
-    # verts, faces, _, _ = marching_cubes(self.grid, level=0.9999)    
-
-    # mesh.from_pydata(verts.tolist(), [], faces.tolist())
-    # mesh.update()
-
-    # Prepare bmesh for geometry creation
     bm = bmesh.new()
     
     tree_grid = self.trees[index][3]
@@ -47,7 +54,7 @@ class VoxelGrid:
     for x in range(len(tree_grid)):
         for y in range(len(tree_grid[x])):
             for z in range(len(tree_grid[x][y])):
-                if tree_grid[x][y][z] == 1:
+                if tree_grid[x][y][z] == CellType.crown.value:
                     self.add_voxel_to_bmesh(bm, x, y, z, tree_grid, self.cube_size)
 
     bm.to_mesh(mesh)
@@ -58,19 +65,20 @@ class VoxelGrid:
   def add_voxel_to_bmesh(self, bm, x, y, z, tree_grid, size):
     voxel_pos = (x * size, y * size, z * size)
     
-    # Check neighbors and add faces only where necessary
-    if True or not self.is_filled(x-1, y, z, tree_grid):
-        self.add_face_to_bmesh(bm, voxel_pos, size, "left")
-    if True or not self.is_filled(x+1, y, z, tree_grid): 
-        self.add_face_to_bmesh(bm, voxel_pos, size, "right")
-    if True or not self.is_filled(x, y-1, z, tree_grid): 
-        self.add_face_to_bmesh(bm, voxel_pos, size, "front")
-    if True or not self.is_filled(x, y+1, z, tree_grid): 
-        self.add_face_to_bmesh(bm, voxel_pos, size, "back")
-    if True or not self.is_filled(x, y, z-1, tree_grid): 
-        self.add_face_to_bmesh(bm, voxel_pos, size, "bottom")
-    if True or not self.is_filled(x, y, z+1, tree_grid): 
-        self.add_face_to_bmesh(bm, voxel_pos, size, "top")
+    offsets = [
+      (-1, 0, 0), 
+      (1, 0, 0), 
+      (0, -1, 0), 
+      (0, 1, 0), 
+      (0, 0, -1), 
+      (0, 0, 1)
+    ]
+    
+    neighbors_filled = self.get_neighbors_filled(x, y, z, offsets, tree_grid)
+    index_to_face_direction = ["left", "right", "front", "back", "bottom", "top"]
+    for index, neighbor in enumerate(neighbors_filled):
+      if not neighbor:
+        self.add_face_to_bmesh(bm, voxel_pos, size, index_to_face_direction[index])
 
   def add_face_to_bmesh(self, bm, position, size, face):
     x, y, z = position
@@ -93,10 +101,48 @@ class VoxelGrid:
     bm_verts = [bm.verts.new(v) for v in verts]
     bm.faces.new(bm_verts)
   
+  def get_neighbors_filled(self, x, y, z, offsets, tree_grid):
+    filled_neighbors = []
+    for offset in offsets:
+      filled_neighbors.append(self.is_filled(x + offset[0], y + offset[1], z + offset[2], tree_grid))
+    return filled_neighbors
+      
   def is_filled(self, x, y, z, tree_grid):
     if not (0 <= x < len(tree_grid) and 0 <= y < len(tree_grid[x]) and 0 <= z < len(tree_grid[x][y])):
       return False 
-    return self.unique_grid[x][y][z] == 1
+    return tree_grid[x][y][z] == CellType.crown.value
+  
+  def generate_hull_mesh(self, index):
+    mesh = bpy.data.meshes.new("HullMesh")
+    obj = bpy.data.objects.new(f"Hull_Voxel_{index}", mesh)
+    
+    offsets = []
+    for i in range(-1, 2):
+      for j in range(-1, 2):
+        for k in range(-1, 2):
+          offsets.append((i, j, k))
+    
+    tree_grid = self.trees[index][3]
+    
+    bm = bmesh.new()
+    
+    for x in range(len(tree_grid)):
+      for y in range(len(tree_grid[x])):
+        for z in range(len(tree_grid[x][y])):
+          if tree_grid[x][y][z] == CellType.crown.no_tree.value:
+            neigbors_filled = self.get_neighbors_filled(x, y, z, offsets, tree_grid)
+            if any(neigbors_filled):
+              self.add_hull_voxel_to_bmesh(bm, x, y, z, tree_grid, self.cube_size)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.location = tuple(np.array(self.trees[index][:3]) * self.cube_size)
+    
+    return obj
+            
+  def add_hull_voxel_to_bmesh(self, bm, x, y, z, tree_grid, cube_size):
+    for direction in ["left", "right", "front", "back", "bottom", "top"]:
+      self.add_face_to_bmesh(bm, (x * cube_size, y * cube_size, z * cube_size), cube_size, direction)
   
   def add_tree(self, position: Tuple[int, int, int], stem_diameter: float, stem_height: float, crown_diameter: float):
     """
@@ -116,7 +162,7 @@ class VoxelGrid:
     
     self.evaluated_forest = False
     
-    tree_grid = np.zeros((int(crown_diameter / self.cube_size + 1), int(crown_diameter / self.cube_size + 1), int((stem_height + crown_diameter) / self.cube_size + 1)), dtype=np.int8)
+    tree_grid = np.zeros((int(crown_diameter / self.cube_size + 1) + 1, int(crown_diameter / self.cube_size + 1) + 1, int((stem_height + crown_diameter) / self.cube_size + 1) + 1), dtype=np.int8)
     
     stem_radius = int(stem_diameter / 2 / self.cube_size)
     crown_radius = int(crown_diameter / 2 / self.cube_size)
@@ -128,14 +174,14 @@ class VoxelGrid:
     mask = j**2 + k**2 <= stem_radius**2
 
     for i in stem_height_range:
-      tree_grid[j[mask]+tree_grid.shape[0]//2, k[mask]+tree_grid.shape[1]//2, i] = 1
+      tree_grid[j[mask]+tree_grid.shape[0]//2, k[mask]+tree_grid.shape[1]//2, i] = CellType.stem.value
 
     # Add crown
     crown_range = np.arange(-int(crown_diameter / self.cube_size), int(crown_diameter / self.cube_size))
     i, j, k = np.meshgrid(crown_range, crown_range, crown_range, indexing='ij')
     mask = i**2 + j**2 + k**2 <= crown_radius**2
 
-    tree_grid[j[mask]+tree_grid.shape[0]//2, k[mask]+tree_grid.shape[1]//2, i[mask] + int((stem_height+crown_diameter/2) / self.cube_size)] = 1
+    tree_grid[j[mask]+tree_grid.shape[0]//2, k[mask]+tree_grid.shape[1]//2, i[mask] + int((stem_height+crown_diameter/2) / self.cube_size)] = CellType.crown.value
     # self.unique_grid = np.zeros((50, 50, 50), dtype=int)
     # for index in np.argwhere(tree_grid == 1):
     #   self.unique_grid[index[0], index[1], index[2]] = 1
@@ -196,7 +242,7 @@ class VoxelGrid:
     
     translation = np.array([x1 - x2, y1 - y2, z1 - z2])
     
-    tree1_filled_cells = np.argwhere(tree1_grid == 1)
+    tree1_filled_cells = np.argwhere(tree1_grid == CellType.crown.value)
     
     # translate to tree2 coordinate space
     tree1_filled_cells = tree1_filled_cells + translation
@@ -211,15 +257,15 @@ class VoxelGrid:
     tree2_collision_edge_cells = self.get_collision_edge_cells(tree2_grid, tree2_collision_cells)
     
     # set cells to 2 to distinguish them from other filled cells
-    tree1_grid[tree1_collision_cells[:, 0], tree1_collision_cells[:, 1], tree1_collision_cells[:, 2]] = 2
-    tree2_grid[tree2_collision_cells[:, 0], tree2_collision_cells[:, 1], tree2_collision_cells[:, 2]] = 2
+    tree1_grid[tree1_collision_cells[:, 0], tree1_collision_cells[:, 1], tree1_collision_cells[:, 2]] = CellType.collision.value
+    tree2_grid[tree2_collision_cells[:, 0], tree2_collision_cells[:, 1], tree2_collision_cells[:, 2]] = CellType.collision.value
     
     self.assign_collision_cells(tree1_grid, tree2_grid, tree1_collision_edge_cells, tree2_collision_edge_cells, translation)
   
   def get_colliding_cells(self, tree_grid: np.ndarray, filled_translated_cells: np.ndarray):
     contained_cells = self.trim_mask(tree_grid, filled_translated_cells)
     
-    collision_indices = np.argwhere(tree_grid[contained_cells[:, 0], contained_cells[:, 1], contained_cells[:, 2]] == 1)
+    collision_indices = np.argwhere(tree_grid[contained_cells[:, 0], contained_cells[:, 1], contained_cells[:, 2]] == CellType.crown.value)
     collision_cells = contained_cells[collision_indices]
     
     return collision_cells.reshape(-1, 3)
@@ -269,7 +315,7 @@ class VoxelGrid:
     neighbors = self.trim_mask(tree_grid, neighbors)
     
     # Filter out neighbors that are not edge cells
-    edge_mask = tree_grid[neighbors[:, 0], neighbors[:, 1], neighbors[:, 2]] == 1
+    edge_mask = tree_grid[neighbors[:, 0], neighbors[:, 1], neighbors[:, 2]] == CellType.crown.value
     edge_cells = neighbors[edge_mask]
     
     return edge_cells
@@ -317,21 +363,21 @@ class VoxelGrid:
       collision_edge_cell = random.choice(tree1_collision_edge_cells)
       mask = self.trim_mask(tree2_grid, sphere_cells + (collision_edge_cell + translation))
       mask = self.trim_mask(tree1_grid, mask - translation)
-      conflicted_contained_cells = mask[tree1_grid[mask[:, 0], mask[:, 1], mask[:, 2]] == 2]
-      tree1_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = 1
+      conflicted_contained_cells = mask[tree1_grid[mask[:, 0], mask[:, 1], mask[:, 2]] == CellType.collision.value]
+      tree1_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = CellType.crown.value
       
       conflicted_contained_cells = conflicted_contained_cells + translation
-      tree2_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = 0
+      tree2_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = CellType.no_tree.value
 
       collision_edge_cell = random.choice(tree2_collision_edge_cells)
       mask = self.trim_mask(tree1_grid, sphere_cells + (collision_edge_cell - translation))
       mask = self.trim_mask(tree2_grid, mask + translation)
       
-      conflicted_contained_cells = mask[tree2_grid[mask[:, 0], mask[:, 1], mask[:, 2]] == 2]
-      tree2_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = 1
+      conflicted_contained_cells = mask[tree2_grid[mask[:, 0], mask[:, 1], mask[:, 2]] == CellType.collision.value]
+      tree2_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = CellType.crown.value
       
       conflicted_contained_cells = conflicted_contained_cells - translation
-      tree1_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = 0
+      tree1_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = CellType.no_tree.value
       
     self.assign_rest_of_collision_cells(tree1_grid, tree2_grid, translation)
       
@@ -396,31 +442,28 @@ class VoxelGrid:
     :rtype: None
     """
     
-    tree1_collision_cells = np.argwhere(tree1_grid == 2)
+    tree1_collision_cells = np.argwhere(tree1_grid == CellType.collision.value)
 
-    mask = (tree1_grid != 1)
+    mask = (tree1_grid != CellType.stem.value) | (tree1_grid != CellType.crown.value)
     tree1_distances = distance_transform_edt(mask)
     tree1_conflicted_distances = tree1_distances[tree1_collision_cells[:, 0], tree1_collision_cells[:, 1], tree1_collision_cells[:, 2]]
     
-    # tree2_collision_cells = np.argwhere(tree2_grid == 2)
     tree2_collision_cells = tree1_collision_cells + translation
-    mask = (tree2_grid != 1)
+    mask = (tree2_grid != CellType.stem.value) | (tree2_grid != CellType.crown.value)
     tree2_distances = distance_transform_edt(mask)
     tree2_conflicted_distances = tree2_distances[tree2_collision_cells[:, 0], tree2_collision_cells[:, 1], tree2_collision_cells[:, 2]]
     
     tree1_cells_closer = tree1_collision_cells[tree1_conflicted_distances <= tree2_conflicted_distances]
     tree1_cells_farther = tree1_collision_cells[tree1_conflicted_distances > tree2_conflicted_distances]
     
-    tree1_grid[tree1_cells_closer[:, 0], tree1_cells_closer[:, 1], tree1_cells_closer[:, 2]] = 1
-    tree1_grid[tree1_cells_farther[:, 0], tree1_cells_farther[:, 1], tree1_cells_farther[:, 2]] = 0
+    tree1_grid[tree1_cells_closer[:, 0], tree1_cells_closer[:, 1], tree1_cells_closer[:, 2]] = CellType.crown.value
+    tree1_grid[tree1_cells_farther[:, 0], tree1_cells_farther[:, 1], tree1_cells_farther[:, 2]] = CellType.no_tree.value
     
     tree2_cells_closer = tree2_collision_cells[tree2_conflicted_distances < tree1_conflicted_distances]
     tree2_cells_farther = tree2_collision_cells[tree2_conflicted_distances >= tree1_conflicted_distances]
     
-    tree2_grid[tree2_cells_closer[:, 0], tree2_cells_closer[:, 1], tree2_cells_closer[:, 2]] = 1
-    tree2_grid[tree2_cells_farther[:, 0], tree2_cells_farther[:, 1], tree2_cells_farther[:, 2]] = 0
-    
-    tree2_grid[tree2_cells_farther[:, 0], tree2_cells_farther[:, 1], tree2_cells_farther[:, 2]] = 0
+    tree2_grid[tree2_cells_closer[:, 0], tree2_cells_closer[:, 1], tree2_cells_closer[:, 2]] = CellType.crown.value
+    tree2_grid[tree2_cells_farther[:, 0], tree2_cells_farther[:, 1], tree2_cells_farther[:, 2]] = CellType.no_tree.value
     
   def greedy_meshing(self, index: int):
     """
