@@ -15,9 +15,6 @@ bl_info = {
 
 from time import time
 import random
-from functools import partial
-from math import sin,cos
-import numpy as np
 import csv
 
 import bpy
@@ -39,70 +36,10 @@ bl_info = {
   "tracker_url": "",
   "category": "Add Mesh"}
 
-def poisson_disk_sampling(width, height, radius, k=30):
-  def distance(p1, p2):
-    return np.linalg.norm(np.array(p1) - np.array(p2))
-
-  def in_circle(point, radius, points):
-    for p in points:
-      if distance(point, p) < radius:
-        return True
-    return False
-
-  def generate_random_point_around(point, radius):
-    r1 = random.random()
-    r2 = random.random()
-    radius = radius * (r1 + 1)
-    angle = 2 * np.pi * r2
-    new_x = point[0] + radius * np.cos(angle)
-    new_y = point[1] + radius * np.sin(angle)
-    return (new_x, new_y)
-
-  grid = [[None for _ in range(height)] for _ in range(width)]
-  cell_size = radius / np.sqrt(2)
-  active_list = []
-  points = []
-
-  initial_point = (random.uniform(0, width), random.uniform(0, height))
-  points.append(initial_point)
-  active_list.append(initial_point)
-  grid[int(initial_point[0] // cell_size)][int(initial_point[1] // cell_size)] = initial_point
-
-  while active_list:
-      idx = random.randint(0, len(active_list) - 1)
-      point = active_list[idx]
-      found = False
-      for _ in range(k):
-          new_point = generate_random_point_around(point, radius)
-          if 0 <= new_point[0] < width and 0 <= new_point[1] < height and not in_circle(new_point, radius, points):
-              points.append(new_point)
-              active_list.append(new_point)
-              grid[int(new_point[0] // cell_size)][int(new_point[1] // cell_size)] = new_point
-              found = True
-              break
-      if not found:
-          active_list.pop(idx)
-
-  return points
-
 class ForestGenerator(bpy.types.Operator):
   bl_idname = "mesh.forest_generator"
   bl_label = "Forest Generator"
   bl_options = {'REGISTER', 'UNDO'}
-
-  forestXExtend: bpy.props.IntProperty(
-    name="Forest X Extend",
-    description="forestXExtend in Blender units",
-    default=30,
-    min=1,
-  )
-
-  forestYExtend: bpy.props.IntProperty(
-    name="Forest Y Extend",
-    description="forestYExtend in Blender units",
-    default=30,
-    min=1,
-  )
 
   surface: bpy.props.StringProperty(name="Surface File", description="Path to the file", subtype='FILE_PATH')
   
@@ -113,8 +50,7 @@ class ForestGenerator(bpy.types.Operator):
     min=1,
   )
 
-  updateTree: bpy.props.BoolProperty(name="Update Tree", default=False)
-  samePosUpdate: bpy.props.BoolProperty(name="Same Position Update Tree", default=False)
+  updateForest: bpy.props.BoolProperty(name="Update Tree", default=False)
 
   @classmethod
   def poll(self, context):
@@ -131,16 +67,13 @@ class ForestGenerator(bpy.types.Operator):
     col2=columns.column()
     
     box = col1.box()
-    box.prop(self, 'updateTree', icon='MESH_DATA')
-    box.prop(self, 'samePosUpdate', icon='MESH_DATA')
+    box.prop(self, 'updateForest', icon='MESH_DATA')
     box.label(text="Generation Settings:")
-    box.prop(self, 'forestXExtend')
-    box.prop(self, 'forestYExtend')
     box.prop(self, 'treeCount')
     box.prop(self, 'surface')
     
   def execute(self, context):
-    if not (self.updateTree or self.samePosUpdate):
+    if not (self.updateForest):
       return {'FINISHED'}
     
     csv_data = []
@@ -149,23 +82,10 @@ class ForestGenerator(bpy.types.Operator):
         csv_reader = csv.reader(csvfile, delimiter=',')
         for row in csv_reader:
             csv_data.append([int(value) for value in row])
-    
-    min_x = min([point[0] for point in csv_data])
-    max_x = max([point[0] for point in csv_data])
-    min_y = min([point[1] for point in csv_data])
-    max_y = max([point[1] for point in csv_data])
-
-    # Perform Poisson disk sampling within the bounding box
-    sampled_points = poisson_disk_sampling(max_x - min_x, max_y - min_y, radius=3)
-
-    # Translate sampled points to the polygon's coordinate space
-    translated_points = [(point[0] + min_x, point[1] + min_y) for point in sampled_points]
 
     voxel_grid = VoxelGrid()
-    for position in translated_points:
-        voxel_grid.add_tree((position[0], position[1], 0), 1, 4, 6)
-
-    tree_mesh_groups = [voxel_grid.generate_mesh_groups(i) for i in range(len(translated_points))]
+    voxel_grid.generate_forest(csv_data)
+    tree_mesh_groups = [voxel_grid.generate_mesh_groups(i) for i in range(len(voxel_grid.trees))]
     
     rest_collection = bpy.data.collections.get("Rest")
     if not rest_collection:
@@ -201,7 +121,7 @@ class ForestGenerator(bpy.types.Operator):
       
       tree_location = mesh_groups[0].location.copy()
       # mesh_groups[0].location = mesh_groups[1].location = (-3, -3, 0)
-      bpy.context.scene.cursor.location = Vector((tree_location[0] + 3, tree_location[1] + 3, tree_location[2]))
+      bpy.context.scene.cursor.location = Vector((tree_location[0] + 3.5, tree_location[1] + 3.5, tree_location[2]))
       bpy.context.view_layer.update()
       
       sca_tree = SCATree(
@@ -226,8 +146,7 @@ class ForestGenerator(bpy.types.Operator):
       # rest_collection.objects.link(mesh_groups[1])
       bpy.context.view_layer.update()
       
-    self.updateTree = False
-    self.samePosUpdate = False
+    self.updateForest = False
     
     return {'FINISHED'}
         
@@ -240,7 +159,7 @@ class ForestGenerator(bpy.types.Operator):
             
 def menu_func(self, context):
   self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest",
-                                          icon='PLUGIN').updateTree = False
+                                          icon='PLUGIN').updateForest = False
 
 def register():
   bpy.utils.register_class(ForestGenerator)

@@ -8,6 +8,8 @@ from typing import Tuple, List, Dict, Set
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
 
+from .poisson_disk_sampling import poisson_disk_sampling_on_surface
+
 class CellType(Enum):
   no_tree = 0
   stem = 1
@@ -143,6 +145,11 @@ class VoxelGrid:
   def add_hull_voxel_to_bmesh(self, bm, x, y, z, tree_grid, cube_size):
     for direction in ["left", "right", "front", "back", "bottom", "top"]:
       self.add_face_to_bmesh(bm, (x * cube_size, y * cube_size, z * cube_size), cube_size, direction)
+      
+  def generate_forest(self, surface: List[Tuple[int, int]]):
+    sampled_points = poisson_disk_sampling_on_surface(surface, 5)
+    for sampled_point in sampled_points:
+      self.add_tree((sampled_point[0], sampled_point[1], 0), 1, 4, 6)
   
   def add_tree(self, position: Tuple[int, int, int], stem_diameter: float, stem_height: float, crown_diameter: float):
     """
