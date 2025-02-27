@@ -51,7 +51,7 @@ import bmesh
 from .scanew import SCA, Branchpoint # the core class that implements the space colonization algorithm and the definition of a segment
 from .timer import Timer
 from .utils import load_materials_from_bundled_lib, load_particlesettings_from_bundled_lib, get_vertex_group
-from .voxel_grid import VoxelGrid
+# from .voxel_grid import VoxelGrid
 
 def availableGroups(self, context):
     return [(name, name, name, n) for n,name in enumerate(bpy.data.collections.keys())]
@@ -778,79 +778,7 @@ class SCATree(bpy.types.Operator):
         
 
         if self.useGroups:
-            # mesh = bpy.data.meshes.new("CrownMesh")
-            # obj = bpy.data.objects.new("CrownMesh", mesh)
-
-            # # Create geometry for the mesh using bmesh
-            # bm = bmesh.new()
-            # bmesh.ops.create_cube(bm, size=1.0)
-            # bm.to_mesh(mesh)
-            # bm.free()
-
-            # # Set object location
-            # obj.location = (0, 0, 3)
-
-            # collection = bpy.data.collections.get("TestA")
-            # if not collection:
-            #     collection = bpy.data.collections.new("TestA")
-            #     bpy.context.scene.collection.children.link(collection)
-
-            # # Link the object to the collection
-            # collection.objects.link(obj)
-
           if not (bpy.data.collections.get("TestA") and any("VoxelObject" in obj.name for obj in bpy.data.collections["TestA"].objects)):
-            voxel_grid = VoxelGrid()
-            # problem pair: (5, 21)
-            num_trees = 30
-            for position in [(ra.randint(0, 10), ra.randint(0, 10), 0) for _ in range(num_trees)]:
-                voxel_grid.add_tree(position, 1, 4, 6)
-            # voxel_grid.add_tree((5, 5, 0), 1, 4, 5)
-            # voxel_grid.add_tree((5, 7, 0), 1, 4, 5)
-            
-            # obj = voxel_grid.generate_mesh(1)
-            for i in range(num_trees):
-                # obj = voxel_grid.greedy_meshing(i)
-                obj = voxel_grid.generate_crown_mesh(i)
-                # obj.location = (-2.5, -2.5, 0)
-                collection = bpy.data.collections.get("TestA")
-                if not collection:
-                    collection = bpy.data.collections.new("TestA")
-                    bpy.context.scene.collection.children.link(collection)
-                
-                material = self.create_random_material(f"Material_{i}")
-                if obj.data.materials:
-                    obj.data.materials[0] = material
-                else:
-                    obj.data.materials.append(material)    
-                
-                collection.objects.link(obj)
-                bpy.context.view_layer.update()
-                
-                # obj = voxel_grid.greedy_meshing(i)
-                # obj = voxel_grid.generate_mesh(i)
-                # # obj.location = (-2.5, -2.5, 0)
-                # collection = bpy.data.collections.get("TestA")
-                # if not collection:
-                #     collection = bpy.data.collections.new("TestA")
-                #     bpy.context.scene.collection.children.link(collection)
-                
-                # material = self.create_random_material(f"Material_{i}")
-                # if obj.data.materials:
-                #     obj.data.materials[0] = material
-                # else:
-                #     obj.data.materials.append(material)    
-                
-                # collection.objects.link(obj)
-                # bpy.context.view_layer.update()
-            # obj = voxel_grid.greedy_meshing(0)
-            # # obj.location = (-2.5, -2.5, 0)
-            # collection = bpy.data.collections.get("TestA")
-            # if not collection:
-            #     collection = bpy.data.collections.new("TestA")
-            #     bpy.context.scene.collection.children.link(collection)
-            # collection.objects.link(obj)
-            # bpy.context.view_layer.update()
-            
             size,minp = groupExtends(self.crownGroup)
             volumefie=partial(groupdistribution,self.crownGroup,self.shadowGroup,self.shadowDensity,self.randomSeed,size,minp-bpy.context.scene.cursor.location)
         else:

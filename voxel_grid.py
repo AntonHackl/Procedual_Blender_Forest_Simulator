@@ -4,7 +4,7 @@ import bmesh
 import random
 from enum import Enum
 from skimage.measure import marching_cubes
-from typing import Tuple, List, Dict, Set
+from typing import Tuple, List, Dict, Set, Any
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
 
@@ -36,14 +36,13 @@ class VoxelGrid:
 
     self.cube_size = 0.5
 
-  def generate_mesh_groups(self, index):
+  def generate_mesh(self, index):
     if not self.evaluated_forest:
       self.evaluate_forest()
       
     crown_mesh = self.generate_crown_mesh(index)
-    hull_mesh = self.generate_hull_mesh(index)
     
-    return crown_mesh, hull_mesh
+    return crown_mesh
     
   def generate_crown_mesh(self, index):
     mesh = bpy.data.meshes.new("CrownMesh")
@@ -113,45 +112,48 @@ class VoxelGrid:
     if not (0 <= x < len(tree_grid) and 0 <= y < len(tree_grid[x]) and 0 <= z < len(tree_grid[x][y])):
       return False 
     return tree_grid[x][y][z] == CellType.crown.value
-  
-  def generate_hull_mesh(self, index):
-    mesh = bpy.data.meshes.new("HullMesh")
-    obj = bpy.data.objects.new(f"Hull_Voxel_{index}", mesh)
-    
-    offsets = []
-    for i in range(-1, 2):
-      for j in range(-1, 2):
-        for k in range(-1, 2):
-          offsets.append((i, j, k))
-    
-    tree_grid = self.trees[index][3]
-    
-    bm = bmesh.new()
-    
-    for x in range(len(tree_grid)):
-      for y in range(len(tree_grid[x])):
-        for z in range(len(tree_grid[x][y])):
-          if tree_grid[x][y][z] == CellType.crown.no_tree.value:
-            neigbors_filled = self.get_neighbors_filled(x, y, z, offsets, tree_grid)
-            if any(neigbors_filled):
-              self.add_hull_voxel_to_bmesh(bm, x, y, z, tree_grid, self.cube_size)
-    
-    bm.to_mesh(mesh)
-    bm.free()
-    obj.location = tuple(np.array(self.trees[index][:3]) * self.cube_size)
-    
-    return obj
-            
-  def add_hull_voxel_to_bmesh(self, bm, x, y, z, tree_grid, cube_size):
-    for direction in ["left", "right", "front", "back", "bottom", "top"]:
-      self.add_face_to_bmesh(bm, (x * cube_size, y * cube_size, z * cube_size), cube_size, direction)
       
-  def generate_forest(self, surface: List[Tuple[int, int]]):
-    sampled_points = poisson_disk_sampling_on_surface(surface, 5)
+  def generate_forest(self, tree_configuration: dict[str, Any], surface: List[Tuple[int, int]]):
+    sampled_points = poisson_disk_sampling_on_surface(surface, 8)
     for sampled_point in sampled_points:
-      self.add_tree((sampled_point[0], sampled_point[1], 0), 1, 4, 6)
+      self.add_tree((sampled_point[0], sampled_point[1], 0), tree_configuration)
   
-  def add_tree(self, position: Tuple[int, int, int], stem_diameter: float, stem_height: float, crown_diameter: float):
+  def add_tree(self, position: Tuple[int, int, int], tree_configuration: dict[str, float]):
+    crown_type_to_function = {
+      "sphere": self.add_sphere_tree
+    }
+    
+    self.evaluated_forest = False
+    stem_height = tree_configuration["stem_height"]
+    stem_diameter = tree_configuration["stem_diameter"]
+    crown_width = tree_configuration["crown_width"]
+    crown_height = tree_configuration["crown_height"]
+    crown_offset = tree_configuration["crown_offset"]
+    
+    tree_grid = np.zeros((
+      int(crown_width / self.cube_size + 1) + 1, 
+      int(crown_width / self.cube_size + 1) + 1, 
+      int((stem_height + crown_height - crown_offset) / self.cube_size + 1) + 1), 
+      dtype=np.int8
+    )
+    
+    self.add_stem(tree_grid, stem_diameter, stem_height)
+    crown_type_to_function[tree_configuration["crown_type"]](tree_grid, tree_configuration)
+    self.trees.append((int(position[0] / self.cube_size), int(position[1] / self.cube_size), int(position[2] / self.cube_size), tree_grid))
+    
+  def add_stem(self, tree_grid: np.ndarray, stem_diameter: float, stem_height: float):
+    stem_radius = int(stem_diameter / 2 / self.cube_size)
+
+    #Add stem
+    stem_height_range = np.arange(int(stem_height / self.cube_size))
+    stem_diameter_range = np.arange(-int(stem_diameter / self.cube_size), int(stem_diameter / self.cube_size))
+    j, k = np.meshgrid(stem_diameter_range, stem_diameter_range, indexing='ij')
+    mask = j**2 + k**2 <= stem_radius**2
+
+    for i in stem_height_range:
+      tree_grid[j[mask]+tree_grid.shape[0]//2, k[mask]+tree_grid.shape[1]//2, i] = CellType.stem.value
+  
+  def add_sphere_tree(self, tree_grid: np.ndarray, tree_configuration: dict[str, float]):
     """
     Adds a tree to the voxel grid at the specified position with the given dimensions.
     
@@ -169,33 +171,20 @@ class VoxelGrid:
     
     self.evaluated_forest = False
     
-    tree_grid = np.zeros((int(crown_diameter / self.cube_size + 1) + 1, int(crown_diameter / self.cube_size + 1) + 1, int((stem_height + crown_diameter) / self.cube_size + 1) + 1), dtype=np.int8)
+    stem_height = tree_configuration["stem_height"]
+    crown_diameter = tree_configuration["crown_width"]
+    crown_offset = tree_configuration["crown_offset"]
     
-    stem_radius = int(stem_diameter / 2 / self.cube_size)
     crown_radius = int(crown_diameter / 2 / self.cube_size)
 
-    #Add stem
-    stem_height_range = np.arange(int(stem_height / self.cube_size))
-    stem_diameter_range = np.arange(-int(stem_diameter / self.cube_size), int(stem_diameter / self.cube_size))
-    j, k = np.meshgrid(stem_diameter_range, stem_diameter_range, indexing='ij')
-    mask = j**2 + k**2 <= stem_radius**2
-
-    for i in stem_height_range:
-      tree_grid[j[mask]+tree_grid.shape[0]//2, k[mask]+tree_grid.shape[1]//2, i] = CellType.stem.value
-
     # Add crown
-    crown_range = np.arange(-int(crown_diameter / self.cube_size), int(crown_diameter / self.cube_size))
+    crown_range = np.arange(-crown_radius, crown_radius + 1)
     i, j, k = np.meshgrid(crown_range, crown_range, crown_range, indexing='ij')
     mask = i**2 + j**2 + k**2 <= crown_radius**2
 
-    tree_grid[j[mask]+tree_grid.shape[0]//2, k[mask]+tree_grid.shape[1]//2, i[mask] + int((stem_height+crown_diameter/2) / self.cube_size)] = CellType.crown.value
-    # self.unique_grid = np.zeros((50, 50, 50), dtype=int)
-    # for index in np.argwhere(tree_grid == 1):
-    #   self.unique_grid[index[0], index[1], index[2]] = 1
+    tree_grid[j[mask]+tree_grid.shape[0]//2, k[mask]+tree_grid.shape[1]//2, i[mask] + int((stem_height-crown_offset) / self.cube_size + crown_radius)] = CellType.crown.value
     
     # self.trees.append((int(position[0] / self.cube_size) - len(tree_grid)//2, int(position[1] / self.cube_size) - len(tree_grid[0])//2, int(position[2] / self.cube_size), tree_grid))
-    self.trees.append((int(position[0] / self.cube_size), int(position[1] / self.cube_size), int(position[2] / self.cube_size), tree_grid))
-    
     
   def evaluate_forest(self):
     """

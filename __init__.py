@@ -14,8 +14,10 @@ bl_info = {
     "category": "Add Mesh"}
 
 from time import time
+from typing import Any
 import random
 import csv
+import json
 
 import bpy
 from bpy.props import FloatProperty, IntProperty, BoolProperty, EnumProperty
@@ -41,8 +43,18 @@ class ForestGenerator(bpy.types.Operator):
   bl_label = "Forest Generator"
   bl_options = {'REGISTER', 'UNDO'}
 
-  surface: bpy.props.StringProperty(name="Surface File", description="Path to the file", subtype='FILE_PATH')
-  
+  surface: bpy.props.StringProperty(
+    name="Surface File", 
+    description="Path to the file", 
+    subtype='FILE_PATH',
+    default="C:\\Users\\anton\\Desktop\\surface.csv"
+  )
+  tree_configuration: bpy.props.StringProperty(
+    name="Tree Configuration File", 
+    description="Path to the file", 
+    subtype='FILE_PATH',
+    default="C:\\Users\\anton\\Desktop\\sphere_tree.json"  
+  )
   treeCount: bpy.props.IntProperty(
     name="Tree Count",
     description="Number of trees to generate",
@@ -71,21 +83,25 @@ class ForestGenerator(bpy.types.Operator):
     box.label(text="Generation Settings:")
     box.prop(self, 'treeCount')
     box.prop(self, 'surface')
+    box.prop(self, 'tree_configuration')
     
   def execute(self, context):
     if not (self.updateForest):
       return {'FINISHED'}
     
-    csv_data = []
+    surface_data = []
     if '.csv' in self.surface:
       with open(self.surface) as csvfile:
         csv_reader = csv.reader(csvfile, delimiter=',')
         for row in csv_reader:
-            csv_data.append([int(value) for value in row])
+            surface_data.append([int(value) for value in row])
 
+    with open(self.tree_configuration) as tree_config_json:
+      tree_configuration: dict[str, Any] = json.load(tree_config_json)
+      
     voxel_grid = VoxelGrid()
-    voxel_grid.generate_forest(csv_data)
-    tree_mesh_groups = [voxel_grid.generate_mesh_groups(i) for i in range(len(voxel_grid.trees))]
+    voxel_grid.generate_forest(tree_configuration, surface_data)
+    tree_meshes = [voxel_grid.generate_mesh(i) for i in range(len(voxel_grid.trees))]
     
     rest_collection = bpy.data.collections.get("Rest")
     if not rest_collection:
@@ -102,32 +118,34 @@ class ForestGenerator(bpy.types.Operator):
       exlusion_collection = bpy.data.collections.new("Exclusion")
       bpy.context.scene.collection.children.link(exlusion_collection)
 
-    for i, mesh_groups in enumerate(tree_mesh_groups):
+    for i, tree_mesh in enumerate(tree_meshes):
       material = self.create_random_material(f"Material_{i}")
-      if mesh_groups[1].data.materials:
-        mesh_groups[1].data.materials[0] = material
+      if tree_mesh.data.materials:
+        tree_mesh.data.materials[0] = material
       else:
-        mesh_groups[1].data.materials.append(material)
-      rest_collection.objects.link(mesh_groups[0])
+        tree_mesh.data.materials.append(material)
+      rest_collection.objects.link(tree_mesh)
       # rest_collection.objects.link(mesh_groups[1])
     
-    for i, mesh_groups in enumerate(tree_mesh_groups):
+    for i, tree_mesh in enumerate(tree_meshes):
       bpy.context.view_layer.update()
-      rest_collection.objects.unlink(mesh_groups[0])
-      # rest_collection.objects.unlink(mesh_groups[1])
-      crown_collection.objects.link(mesh_groups[0])
-      # exlusion_collection.objects.link(mesh_groups[1])
+      rest_collection.objects.unlink(tree_mesh)
+      crown_collection.objects.link(tree_mesh)
       bpy.context.view_layer.update()
       
-      tree_location = mesh_groups[0].location.copy()
-      # mesh_groups[0].location = mesh_groups[1].location = (-3, -3, 0)
-      bpy.context.scene.cursor.location = Vector((tree_location[0] + 3.5, tree_location[1] + 3.5, tree_location[2]))
+      tree_location = tree_mesh.location.copy()
+      tree_dimensions = tree_mesh.dimensions
+      bpy.context.scene.cursor.location = Vector((
+        tree_location[0] + tree_dimensions.x / 2, 
+        tree_location[1] + tree_dimensions.y / 2, 
+        tree_location[2]
+      ))
       bpy.context.view_layer.update()
       
       sca_tree = SCATree(
         context,
-        numberOfEndpoints=200,
-        interNodeLength=0.25,
+        numberOfEndpoints=tree_configuration["numberOfEndpoints"],
+        interNodeLength=tree_configuration["interNodeLength"],
         killDistance=0.1,
         useGroups=True,
         crownGroup="Crown",
@@ -136,14 +154,12 @@ class ForestGenerator(bpy.types.Operator):
         subSurface=True,
         randomSeed=random.randint(0, 1_000_000),
       )
-      tree_mesh = sca_tree.create_tree(context)
+      sca_tree_mesh = sca_tree.create_tree(context)
       
-      tree_mesh.location = bpy.context.scene.cursor.location.copy()
+      sca_tree_mesh.location = bpy.context.scene.cursor.location.copy()
       
-      crown_collection.objects.unlink(mesh_groups[0])
-      # exlusion_collection.objects.unlink(mesh_groups[1])
-      rest_collection.objects.link(mesh_groups[0])
-      # rest_collection.objects.link(mesh_groups[1])
+      crown_collection.objects.unlink(tree_mesh)
+      rest_collection.objects.link(tree_mesh)
       bpy.context.view_layer.update()
       
     self.updateForest = False

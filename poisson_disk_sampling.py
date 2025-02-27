@@ -1,11 +1,8 @@
 from typing import Tuple, List
-from functools import partial
-from math import sin,cos
 import numpy as np
 import random
 import triangle
 from shapely.geometry import Polygon, Point
-from shapely.ops import triangulate
 
 def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], radius: float, k=30):
   def random_point_in_triangle(v1, v2, v3):
@@ -36,15 +33,9 @@ def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], radius: flo
     chosen_triangle = random.choices(tri_list, weights=areas, k=1)[0]
     
     return random_point_in_triangle(*chosen_triangle)
-  
-  def distance(p1, p2):
-    return np.linalg.norm(np.array(p1) - np.array(p2))
 
   def in_circle(point, radius, points):
-    for p in points:
-      if distance(point, p) < radius:
-        return True
-    return False
+    return any(np.linalg.norm(np.asarray(point) - np.asarray(points), axis=1) <= radius)
 
   def generate_random_point_around(point, radius):
     r1 = random.random()
