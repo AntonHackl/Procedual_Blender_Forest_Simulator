@@ -1,26 +1,13 @@
 import sys
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
 
-bl_info = {
-    "name": "SCA Tree Generator",
-    "author": "michel anders (varkenvarken)",
-    "version": (0, 2, 14),
-    "blender": (2, 93, 0),
-    "location": "View3D > Add > Mesh",
-    "description": "Adds a tree created with the space colonization algorithm starting at the 3D cursor",
-    "warning": "",
-    "wiki_url": "https://github.com/varkenvarken/spacetree/wiki",
-    "tracker_url": "",
-    "category": "Add Mesh"}
-
 from time import time
-from typing import Any
+from typing import Any, List, Dict
 import random
 import csv
 import json
 
 import bpy
-from bpy.props import FloatProperty, IntProperty, BoolProperty, EnumProperty
 from mathutils import Vector,Euler,Matrix,Quaternion
 from .voxel_grid import VoxelGrid
 from .sca_not_init import SCATree
@@ -38,6 +25,20 @@ bl_info = {
   "tracker_url": "",
   "category": "Add Mesh"}
 
+class TreeConfiguration(bpy.types.PropertyGroup):
+    path: bpy.props.StringProperty(
+      name="Tree Configuration File", 
+      description="Path to the file", 
+      subtype='FILE_PATH',
+      default="C:\\Users\\anton\\Desktop\\sphere_tree.json"  
+    )
+    weight: bpy.props.FloatProperty(
+      name="Weight",
+      description="Weight of the tree configuration",
+      default=1,
+      min=0,
+    )
+
 class ForestGenerator(bpy.types.Operator):
   bl_idname = "mesh.forest_generator"
   bl_label = "Forest Generator"
@@ -49,19 +50,13 @@ class ForestGenerator(bpy.types.Operator):
     subtype='FILE_PATH',
     default="C:\\Users\\anton\\Desktop\\surface.csv"
   )
-  tree_configuration: bpy.props.StringProperty(
-    name="Tree Configuration File", 
-    description="Path to the file", 
-    subtype='FILE_PATH',
-    default="C:\\Users\\anton\\Desktop\\sphere_tree.json"  
-  )
-  treeCount: bpy.props.IntProperty(
-    name="Tree Count",
+  treeConfigurationCount: bpy.props.IntProperty(
+    name="Tree Configuration Count",
     description="Number of trees to generate",
     default=1,
     min=1,
   )
-
+  tree_configurations: bpy.props.CollectionProperty(type=TreeConfiguration) 
   updateForest: bpy.props.BoolProperty(name="Update Tree", default=False)
 
   @classmethod
@@ -69,23 +64,34 @@ class ForestGenerator(bpy.types.Operator):
     # Check if we are in object mode
     return context.mode == 'OBJECT'
   
+  def update_tree_configurations(self):
+    current_count = len(self.tree_configurations)
+    if self.treeConfigurationCount > current_count:
+        for _ in range(self.treeConfigurationCount - current_count):
+            self.tree_configurations.add()
+    elif self.treeConfigurationCount < current_count:
+        for _ in range(current_count - self.treeConfigurationCount):
+            self.tree_configurations.remove(len(self.tree_configurations) - 1)
+  
   def draw(self, context):
     layout = self.layout
 
-    # layout.prop(self, 'updateTree', icon='MESH_DATA')
+    columns = layout.row()
+    col1 = columns.column()
 
-    columns=layout.row()
-    col1=columns.column()
-    col2=columns.column()
-    
     box = col1.box()
     box.prop(self, 'updateForest', icon='MESH_DATA')
     box.label(text="Generation Settings:")
-    box.prop(self, 'treeCount')
     box.prop(self, 'surface')
-    box.prop(self, 'tree_configuration')
-    
+    box.prop(self, 'treeConfigurationCount')
+
+    for i, tree_config in enumerate(self.tree_configurations):
+      row = box.row()
+      row.prop(tree_config, "path")
+      row.prop(tree_config, "weight")
+        
   def execute(self, context):
+    self.update_tree_configurations()
     if not (self.updateForest):
       return {'FINISHED'}
     
@@ -96,12 +102,18 @@ class ForestGenerator(bpy.types.Operator):
         for row in csv_reader:
             surface_data.append([int(value) for value in row])
 
-    with open(self.tree_configuration) as tree_config_json:
-      tree_configuration: dict[str, Any] = json.load(tree_config_json)
+    tree_configurations: List[dict[str, Any]] = []
+    configuration_weights: List[float] = []
+    for tree_config in self.tree_configurations:
+      with open(tree_config.path) as tree_config_json:
+        tree_configurations.append(json.load(tree_config_json))
+        configuration_weights.append(tree_config.weight)
       
     voxel_grid = VoxelGrid()
-    voxel_grid.generate_forest(tree_configuration, surface_data)
-    tree_meshes = [voxel_grid.generate_mesh(i) for i in range(len(voxel_grid.trees))]
+    voxel_grid.generate_forest(tree_configurations, configuration_weights, surface_data)
+    generation_results = [voxel_grid.generate_mesh(i) for i in range(len(voxel_grid.trees))]
+    tree_configuration_indices = [generation_result[0] for generation_result in generation_results]
+    tree_meshes = [generation_result[1] for generation_result in generation_results]
     
     rest_collection = bpy.data.collections.get("Rest")
     if not rest_collection:
@@ -125,7 +137,6 @@ class ForestGenerator(bpy.types.Operator):
       else:
         tree_mesh.data.materials.append(material)
       rest_collection.objects.link(tree_mesh)
-      # rest_collection.objects.link(mesh_groups[1])
     
     for i, tree_mesh in enumerate(tree_meshes):
       bpy.context.view_layer.update()
@@ -144,8 +155,8 @@ class ForestGenerator(bpy.types.Operator):
       
       sca_tree = SCATree(
         context,
-        numberOfEndpoints=tree_configuration["numberOfEndpoints"],
-        interNodeLength=tree_configuration["interNodeLength"],
+        numberOfEndpoints=tree_configurations[tree_configuration_indices[i]]["numberOfEndpoints"],
+        interNodeLength=tree_configurations[tree_configuration_indices[i]]["interNodeLength"],
         killDistance=0.1,
         useGroups=True,
         crownGroup="Crown",
@@ -178,12 +189,14 @@ def menu_func(self, context):
                                           icon='PLUGIN').updateForest = False
 
 def register():
+  bpy.utils.register_class(TreeConfiguration)
   bpy.utils.register_class(ForestGenerator)
   bpy.types.VIEW3D_MT_mesh_add.append(menu_func)
 
 
 def unregister():
   bpy.types.VIEW3D_MT_mesh_add.remove(menu_func)
+  bpy.utils.register_class(TreeConfiguration)
   bpy.utils.unregister_class(ForestGenerator)
       
 if __name__ == "__main__":
