@@ -15,8 +15,6 @@ class CellType(Enum):
   stem = 1
   crown = 2
   collision = 3
-  assigned_tree_1 = 4
-  assigned_tree_2 = 5
 
 class VoxelGrid:
   """
@@ -114,11 +112,12 @@ class VoxelGrid:
     return tree_grid[x][y][z] == CellType.crown.value
       
   def generate_forest(self, tree_configurations: List[Dict[str, Any]], configuration_weights: List[float], surface: List[Tuple[int, int]]):
-    sampled_points = poisson_disk_sampling_on_surface(surface, 5)
-    relative_configuration_weigths = np.array(configuration_weights) / np.sum(configuration_weights)
+    crown_widths = [tree_configuration["crown_width"] for tree_configuration in tree_configurations]
+    sampled_points = poisson_disk_sampling_on_surface(surface, configuration_weights, crown_widths)
     for sampled_point in sampled_points:
-      chosen_configuration_index = random.choices(list(range(len(configuration_weights))), weights=relative_configuration_weigths, k=1)[0]
-      self.add_tree((sampled_point[0], sampled_point[1], 0), chosen_configuration_index, tree_configurations[chosen_configuration_index])
+      sampled_position = sampled_point[0]
+      chosen_configuration_index = sampled_point[1]
+      self.add_tree((sampled_position[0], sampled_position[1], 0), chosen_configuration_index, tree_configurations[chosen_configuration_index])
   
   def add_tree(self, position: Tuple[int, int, int], configuration_identifier: int, tree_configuration: dict[str, float]):
     crown_type_to_function = {
@@ -373,7 +372,6 @@ class VoxelGrid:
       self.assign_rest_of_collision_cells(tree1_grid, tree2_grid, translation)
       return
   
-    # random.seed(7e4)
     for round in range(rounds):
       sphere_radius = random.randint(min_radius, max_radius)
       sphere_cells = self.get_cells_for_sphere(sphere_radius)

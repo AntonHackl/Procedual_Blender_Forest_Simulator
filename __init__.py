@@ -53,7 +53,7 @@ class ForestGenerator(bpy.types.Operator):
   treeConfigurationCount: bpy.props.IntProperty(
     name="Tree Configuration Count",
     description="Number of trees to generate",
-    default=1,
+    default=2,
     min=1,
   )
   tree_configurations: bpy.props.CollectionProperty(type=TreeConfiguration) 
@@ -138,6 +138,7 @@ class ForestGenerator(bpy.types.Operator):
         tree_mesh.data.materials.append(material)
       rest_collection.objects.link(tree_mesh)
     
+    original_cursor_location = bpy.context.scene.cursor.location.copy()
     for i, tree_mesh in enumerate(tree_meshes):
       bpy.context.view_layer.update()
       rest_collection.objects.unlink(tree_mesh)
@@ -174,7 +175,7 @@ class ForestGenerator(bpy.types.Operator):
       bpy.context.view_layer.update()
       
     self.updateForest = False
-    
+    bpy.context.scene.cursor.location = original_cursor_location
     return {'FINISHED'}
         
   def create_random_material(self, name):

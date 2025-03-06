@@ -4,7 +4,7 @@ import random
 import triangle
 from shapely.geometry import Polygon, Point
 
-def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], radius: float, k=30):
+def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], configuration_weights, crown_widths, k=30):
   def random_point_in_triangle(v1, v2, v3):
     r1, r2 = random.random(), random.random()
     sqrt_r1 = np.sqrt(r1)
@@ -34,25 +34,36 @@ def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], radius: flo
     
     return random_point_in_triangle(*chosen_triangle)
 
-  def in_circle(point, radius, points):
-    return any(np.linalg.norm(np.asarray(point) - np.asarray(points), axis=1) <= radius)
+  def in_circle(point, points):
+    return any(
+      np.linalg.norm(np.asarray([point[0][0], point[0][1]]) 
+        - np.asarray([[neighbor_point[0][0], neighbor_point[0][1]] for neighbor_point in points]), axis=1) 
+      <= np.array([(crown_widths[neighbor_point[1]] + crown_widths[point[1]]) / 2 for neighbor_point in points])
+    )
 
-  def generate_random_point_around(point, radius):
+  def generate_random_point_around(point):
     r1 = random.random()
     r2 = random.random()
-    radius = radius * (r1 + 1)
+    radius = crown_widths[point[1]] * (r1 + 1)
     angle = 2 * np.pi * r2
-    new_x = point[0] + radius * np.cos(angle)
-    new_y = point[1] + radius * np.sin(angle)
+    position = point[0]
+    new_x = position[0] + radius * np.cos(angle)
+    new_y = position[1] + radius * np.sin(angle)
     return (new_x, new_y)
   
-  active_list = []
-  points = []
+  def chooseRandomConfiguration():
+    return random.choices(range(len(configuration_weights)), weights=configuration_weights, k=1)[0]
+  
+  active_list: Tuple[Tuple[float, float], int] = []
+  points: Tuple[Tuple[float, float], int] = []
 
   if surface == []:
     return []
+  
   polygon = Polygon(surface)
-  initial_point = random_point_in_polygon(polygon)
+  initial_position = random_point_in_polygon(polygon)
+  configuration_index = chooseRandomConfiguration()
+  initial_point = (initial_position, configuration_index)
   points.append(initial_point)
   active_list.append(initial_point)
 
@@ -61,8 +72,9 @@ def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], radius: flo
     point = active_list[idx]
     found = False
     for _ in range(k):
-      new_point = generate_random_point_around(point, radius)
-      if polygon.contains(Point(new_point)) and not in_circle(new_point, radius, points):
+      new_position = generate_random_point_around(point)
+      new_point = (new_position, chooseRandomConfiguration())
+      if polygon.contains(Point(new_position)) and not in_circle(new_point, points):
         points.append(new_point)
         active_list.append(new_point)
         found = True
