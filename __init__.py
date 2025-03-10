@@ -96,7 +96,7 @@ class ForestGenerator(bpy.types.Operator):
     
     start_time = time.time()
     self.update_tree_configurations()
-    if not (self.updateForest):
+    if not self.updateForest:
       return {'FINISHED'}
     
     surface_data = []
@@ -124,7 +124,7 @@ class ForestGenerator(bpy.types.Operator):
     print(f"Generating forest took {end_time - start_time} seconds")
     generation_steps['generating_forest'] = end_time - start_time
     start_time = time.time()
-    generation_results = [voxel_grid.generate_mesh(i) for i in range(len(voxel_grid.trees))]
+    generation_results = [voxel_grid.greedy_meshing(i) for i in range(len(voxel_grid.trees))]
     tree_configuration_indices = [generation_result[0] for generation_result in generation_results]
     tree_meshes = [generation_result[1] for generation_result in generation_results]
     
@@ -183,6 +183,8 @@ class ForestGenerator(bpy.types.Operator):
         noModifiers=False,
         subSurface=True,
         randomSeed=random.randint(0, 1_000_000),
+        scale=.01,
+        power=0.7,
       )
       sca_tree_mesh = sca_tree.create_tree(context)
       
@@ -201,7 +203,7 @@ class ForestGenerator(bpy.types.Operator):
     
     with open('C:/Users/anton/Documents/Uni/Spatial Data I/time_measurement.json', 'r') as time_measurements_file:
       time_measurements = json.load(time_measurements_file)
-    time_measurements['first_test'] = generation_steps
+    time_measurements['greedy_meshing'] = generation_steps
     with open('C:/Users/anton/Documents/Uni/Spatial Data I/time_measurement.json', 'w') as time_measurements_file:
       json.dump(time_measurements, time_measurements_file)
     return {'FINISHED'}
@@ -214,7 +216,7 @@ class ForestGenerator(bpy.types.Operator):
     return mat
             
 def menu_func(self, context):
-  self.layout.operator(ForestGenerator.bl_idname, text="Generate Fores Fixed",
+  self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest Fixed",
                                           icon='PLUGIN').updateForest = False
 
 def register():

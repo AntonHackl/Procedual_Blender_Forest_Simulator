@@ -301,7 +301,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
     prune=0):
     
     timings = Timer()
-    
+    start = time()
     p=bpy.context.scene.cursor.location
     verts=[]
     edges=[]
@@ -326,7 +326,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
             nv=len(verts)
             roots.add(bp)
         bp.index=n
-        
+    radii = np.array(radii)/np.max(radii)
     timings.add('skeleton')
     
     # native skinning method
@@ -414,7 +414,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
           #bpy.context.active_object.modifiers[-1].use_subsurf_uv = True
           # to (same above)
           # bpy.context.active_object.modifiers[0].uv_smooth = 'PRESERVE_CORNERS'
-          
+              
     timings.add('modifiers')
 
     # create a particles based leaf emitter (if we have leaves and/or objects)
@@ -447,9 +447,11 @@ def createGeometry(tree, power=0.5, scale=0.01,
             obj_leaves2.particle_systems.active.settings.count = len(faces)
             obj_leaves2.particle_systems.active.name = 'Objects'
             obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
-        
+    end = time()
+    print('geometry default time', end-start)  
     # bpy.context.scene.objects.active = obj_new
-    obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, (np.array(radii)**power)*scale)
+    start = time()
+    obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, (radii**power)*scale)
     bpy.ops.object.shade_smooth()
     
     timings.add('leaves')
@@ -459,6 +461,8 @@ def createGeometry(tree, power=0.5, scale=0.01,
         
     bpy.data.objects.remove(obj_new, do_unlink=True)
     
+    end = time()
+    print('geometry my time', end-start)
     return obj_processed
 
 def segmentIntoTrunkAndBranch(tree, obj_new, radii):
@@ -667,6 +671,7 @@ class SCATree():
                   startingpoints.append(Branchpoint(p,None, 0))
       
       timings.add('scastart')
+      start = time()
       sca = SCA(NBP = self.maxIterations,
           NENDPOINTS=self.numberOfEndpoints,
           d=self.internodeLength,
@@ -691,7 +696,9 @@ class SCATree():
           obj_markers = bpy.data.objects.new(mesh.name, mesh)
           base = bpy.context.collection.objects.link(obj_markers)
       timings.add('showmarkers')
-      
+      end = time()
+      print('SCA Time',end-start)
+      start = time()
       obj_new=createGeometry(sca,self.power,self.scale,
           self.noModifiers, self.skinMethod, self.subSurface,
           self.bLeaf, 
@@ -702,7 +709,8 @@ class SCATree():
           self.emitterScale,
           self.timePerformance,
           self.pruningGen)
-      
+      end = time()
+      print('Create Geometry Time',end-start)
       # bpy.ops.object.material_slot_add()
       # obj_new.material_slots[-1].material = barkmaterials[self.barkMaterial]
       

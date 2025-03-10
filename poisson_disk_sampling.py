@@ -82,4 +82,4 @@ def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], configurati
     if not found:
       active_list.pop(idx)
 
-  return points
+  return points[:2]
