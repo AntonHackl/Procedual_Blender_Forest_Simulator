@@ -489,21 +489,6 @@ class VoxelGrid:
     # Prepare bmesh for geometry creation
     bm = bmesh.new()
     
-    test_grid = np.zeros(self.trees[index][-1].shape, dtype=np.int8)
-    
-    for quad in quads:
-      x_start, y_start, z_start, x_end, y_end, z_end = quad
-      test_grid[x_start:x_end, y_start:y_end, z_start:z_end] = 1
-    instance_matrix = self.trees[index][-1]
-    print(f'second test: {np.sum(test_grid == instance_matrix)}/{np.prod(instance_matrix.shape)}')
-    
-    test_grid = np.zeros(self.trees[index][-1].shape, dtype=np.int8)
-    
-    for quad in quads:
-      x_start, y_start, z_start, x_end, y_end, z_end = quad
-      test_grid[x_start:x_end+1, y_start:y_end+1, z_start:z_end+1] = 1
-    instance_matrix = self.trees[index][-1]
-    print(f'third test: {np.sum(test_grid == instance_matrix)}/{np.prod(instance_matrix.shape)}')
     for quad in quads:
       x_start, y_start, z_start, x_end, y_end, z_end = quad
       
@@ -561,13 +546,6 @@ class VoxelGrid:
       z_position, plane_set = next(iter(planes.items()))
       x_start, y_start, x_end, y_end = next(iter(plane_set))
       quads.append(self.capture_quad(z_position, x_start, y_start, x_end, y_end, planes))
-    
-    test_grid = np.zeros(instance_matrix.shape, dtype=np.int8)
-    for quad in quads:
-      x_start, y_start, z_start, x_end, y_end, z_end = quad
-      test_grid[x_start:x_end+1, y_start:y_end+1, z_start:z_end+1] = 1  
-    
-    print(f'first test: {np.sum(test_grid == instance_matrix)}/{np.prod(instance_matrix.shape)}')
     
     return quads
   
@@ -655,14 +633,6 @@ class VoxelGrid:
         planes[z_position].add(plane)
       else:
         planes[z_position] = {plane}
-    
-    # test_grid = np.zeros(instance_matrix.shape, dtype=np.int8)
-    # for key in planes:
-    #   for plane in planes[key]:
-    #     x_start, y_start, x_end, y_end = plane
-    #     test_grid[x_start:x_end+1, y_start:y_end+1, key] = 1
-    
-    # print(f'first test: {np.sum(test_grid == instance_matrix)}/{np.prod(instance_matrix.shape)}')
     
     return planes
 
@@ -761,15 +731,6 @@ class VoxelGrid:
           rows[(begin_or_end[1], begin_or_end[2])].add((start, begin_or_end[0]))
         else:
           rows[(begin_or_end[1], begin_or_end[2])] = {(start, begin_or_end[0])}
-    
-    # test_grid = np.zeros(instance_matrix.shape, dtype=np.int8)
-    # for key in rows.keys():
-    #   y, z = key
-    #   for row in rows[key]:
-    #     x_start, x_end = row
-    #     test_grid[x_start:x_end+1, y, z] = 1
-      
-    # print(f'first test: {np.sum(test_grid == instance_matrix)}/{np.prod(instance_matrix.shape)}')
     
     return rows
     
