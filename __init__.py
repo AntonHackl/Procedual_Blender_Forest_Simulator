@@ -111,7 +111,7 @@ class ForestGenerator(bpy.types.Operator):
       
     voxel_grid = VoxelGrid()
     voxel_grid.generate_forest(tree_configurations, configuration_weights, surface_data)
-    generation_results = [voxel_grid.generate_mesh(i) for i in range(len(voxel_grid.trees))]
+    generation_results = [voxel_grid.greedy_meshing(i) for i in range(len(voxel_grid.trees))]
     tree_configuration_indices = [generation_result[0] for generation_result in generation_results]
     tree_meshes = [generation_result[1] for generation_result in generation_results]
     
@@ -186,7 +186,7 @@ class ForestGenerator(bpy.types.Operator):
     return mat
             
 def menu_func(self, context):
-  self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest",
+  self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest Fixed",
                                           icon='PLUGIN').updateForest = False
 
 def register():

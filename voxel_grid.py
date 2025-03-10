@@ -539,7 +539,7 @@ class VoxelGrid:
     bm.free()  
     
     obj.location = tuple(np.array(self.trees[index][:3]) * self.cube_size)
-    return obj
+    return self.trees[index][3], obj
   
   def capture_quads(self, index: int):
     """
