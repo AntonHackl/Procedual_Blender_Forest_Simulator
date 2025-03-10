@@ -14,7 +14,7 @@ from .sca_not_init import SCATree
 import bmesh
 
 bl_info = {
-  "name": "Forest Generator",
+  "name": "Forest Generator Old",
   "author": "Anton Hackl",
   "version": (0, 2, 14),
   "blender": (2, 93, 0),
@@ -186,7 +186,7 @@ class ForestGenerator(bpy.types.Operator):
     return mat
             
 def menu_func(self, context):
-  self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest",
+  self.layout.operator(ForestGenerator.bl_idname, text="Generate Fores Fixed",
                                           icon='PLUGIN').updateForest = False
 
 def register():
