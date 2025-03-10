@@ -1,7 +1,7 @@
 import sys
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
 
-from time import time
+import time
 from typing import Any, List, Dict
 import random
 import csv
@@ -91,6 +91,10 @@ class ForestGenerator(bpy.types.Operator):
       row.prop(tree_config, "weight")
         
   def execute(self, context):
+    
+    generation_steps = {}
+    
+    start_time = time.time()
     self.update_tree_configurations()
     if not (self.updateForest):
       return {'FINISHED'}
@@ -108,9 +112,18 @@ class ForestGenerator(bpy.types.Operator):
       with open(tree_config.path) as tree_config_json:
         tree_configurations.append(json.load(tree_config_json))
         configuration_weights.append(tree_config.weight)
-      
+        
+    end_time = time.time()
+    print(f"Reading files took {end_time - start_time} seconds")
+    generation_steps['reading_files'] = end_time - start_time
+    
+    start_time = time.time()
     voxel_grid = VoxelGrid()
     voxel_grid.generate_forest(tree_configurations, configuration_weights, surface_data)
+    end_time = time.time()
+    print(f"Generating forest took {end_time - start_time} seconds")
+    generation_steps['generating_forest'] = end_time - start_time
+    start_time = time.time()
     generation_results = [voxel_grid.generate_mesh(i) for i in range(len(voxel_grid.trees))]
     tree_configuration_indices = [generation_result[0] for generation_result in generation_results]
     tree_meshes = [generation_result[1] for generation_result in generation_results]
@@ -138,6 +151,11 @@ class ForestGenerator(bpy.types.Operator):
         tree_mesh.data.materials.append(material)
       rest_collection.objects.link(tree_mesh)
     
+    end_time = time.time()
+    print(f"Generating voxel meshes took {end_time - start_time} seconds")
+    generation_steps['generating_voxel_meshes'] = end_time - start_time
+    
+    start_time = time.time()
     original_cursor_location = bpy.context.scene.cursor.location.copy()
     for i, tree_mesh in enumerate(tree_meshes):
       bpy.context.view_layer.update()
@@ -176,6 +194,16 @@ class ForestGenerator(bpy.types.Operator):
       
     self.updateForest = False
     bpy.context.scene.cursor.location = original_cursor_location
+    end_time = time.time()
+    print(f"Generating tree meshes took {end_time - start_time} seconds")
+    generation_steps['generating_tree_meshes'] = end_time - start_time
+    generation_steps['total_time'] = sum(generation_steps.values())
+    
+    with open('C:/Users/anton/Documents/Uni/Spatial Data I/time_measurement.json', 'r') as time_measurements_file:
+      time_measurements = json.load(time_measurements_file)
+    time_measurements['first_test'] = generation_steps
+    with open('C:/Users/anton/Documents/Uni/Spatial Data I/time_measurement.json', 'w') as time_measurements_file:
+      json.dump(time_measurements, time_measurements_file)
     return {'FINISHED'}
         
   def create_random_material(self, name):

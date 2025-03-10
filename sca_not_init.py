@@ -623,19 +623,19 @@ class SCATree():
     
     # we load this library matrial unconditionally, i.e. each time we execute() which sounds like a waste
     # but library loads get undone as well if we redo the operator ...
-    global barkmaterials
-    barkmaterials = load_materials_from_bundled_lib('add_mesh_space_tree', 'material_lib.blend', 'Bark')
+    # global barkmaterials
+    # barkmaterials = load_materials_from_bundled_lib('add_mesh_space_tree', 'material_lib.blend', 'Bark')
     # bpy.types.MESH_OT_sca_tree.barkmaterials = barkmaterials
     
-    global particlesettings
+    # global particlesettings
     # we *must* execute this every time because this operator has UNDO as attribute so anything that's changed will be reverted on each execution. If we initialize this only once, the operator crashes Blender because it will refer to stale data.
-    particlesettings = load_particlesettings_from_bundled_lib('add_mesh_space_tree', 'material_lib.blend', 'LeafEmitter')
+    # particlesettings = load_particlesettings_from_bundled_lib('add_mesh_space_tree', 'material_lib.blend', 'LeafEmitter')
     # bpy.types.MESH_OT_sca_tree.particlesettings = particlesettings
 
-    self.leafParticles = availableParticleSettings(self, context)[0]
-    self.objectParticles = availableParticleSettings(self, context)[0]
+    # self.leafParticles = availableParticleSettings(self, context)[0]
+    # self.objectParticles = availableParticleSettings(self, context)[0]
     self.emitterScale = emitterScale
-    self.barMaterial = availableBarkMaterials(self, context)[0]
+    # self.barMaterial = availableBarkMaterials(self, context)[0]
     self.updateTree = False
     self.noModifiers = noModifiers
     self.subSurface = subSurface

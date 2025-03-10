@@ -38,7 +38,7 @@ def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], configurati
     return any(
       np.linalg.norm(np.asarray([point[0][0], point[0][1]]) 
         - np.asarray([[neighbor_point[0][0], neighbor_point[0][1]] for neighbor_point in points]), axis=1) 
-      <= np.array([(crown_widths[neighbor_point[1]] + crown_widths[point[1]]) / 2 for neighbor_point in points])
+      <= np.array([(crown_widths[neighbor_point[1]] + crown_widths[point[1]]) / 3 for neighbor_point in points])
     )
 
   def generate_random_point_around(point):
