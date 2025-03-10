@@ -13,7 +13,7 @@ from .poisson_disk_sampling import poisson_disk_sampling_on_surface
 class CellType(Enum):
   no_tree = 0
   stem = 1
-  crown = 2
+  crown = 1
   collision = 3
 
 class VoxelGrid:
@@ -422,26 +422,6 @@ class VoxelGrid:
     inside_sphere = grid[distances <= radius**2]
     
     return inside_sphere
-  
-  # def add_collision_cells_to_tree(self, tree_grid: np.ndarray, selected_cells: np.ndarray):
-  #   # contained_cells = self.trim_mask(tree_grid, selected_cells)
-  #   conflicted_contained_cells = selected_cells[np.logical_or(tree_grid[selected_cells[:, 0], selected_cells[:, 1], selected_cells[:, 2]] == 2, 
-  #                                                              tree_grid[selected_cells[:, 0], selected_cells[:, 1], selected_cells[:, 2]] == 2)]
-  #   # conflicted_contained_cells = selected_cells
-  #   # conflicted_contained_cells = contained_cells
-  #   tree_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = 1
-  #   return conflicted_contained_cells
-          
-  # def subtract_collision_cells_from_tree(self, tree_grid: np.ndarray, selected_cells: np.ndarray, t1):
-  #   # contained_cells = self.trim_mask(tree_grid, selected_cells)
-  #   conflicted_contained_cells = selected_cells[np.logical_or(tree_grid[selected_cells[:, 0], selected_cells[:, 1], selected_cells[:, 2]] == 2, 
-  #                                                              tree_grid[selected_cells[:, 0], selected_cells[:, 1], selected_cells[:, 2]] == 2)]
-  #   # conflicted_contained_cells = selected_cells
-  #   # conflicted_contained_cells = contained_cells
-  #   if len(t1) != len(conflicted_contained_cells):
-  #       print('woa')
-  #   tree_grid[conflicted_contained_cells[:, 0], conflicted_contained_cells[:, 1], conflicted_contained_cells[:, 2]] = 0
-  #   return conflicted_contained_cells
     
   def assign_rest_of_collision_cells(self, 
                                      tree1_grid: np.ndarray, 
@@ -509,6 +489,21 @@ class VoxelGrid:
     # Prepare bmesh for geometry creation
     bm = bmesh.new()
     
+    test_grid = np.zeros(self.trees[index][-1].shape, dtype=np.int8)
+    
+    for quad in quads:
+      x_start, y_start, z_start, x_end, y_end, z_end = quad
+      test_grid[x_start:x_end, y_start:y_end, z_start:z_end] = 1
+    instance_matrix = self.trees[index][-1]
+    print(f'second test: {np.sum(test_grid == instance_matrix)}/{np.prod(instance_matrix.shape)}')
+    
+    test_grid = np.zeros(self.trees[index][-1].shape, dtype=np.int8)
+    
+    for quad in quads:
+      x_start, y_start, z_start, x_end, y_end, z_end = quad
+      test_grid[x_start:x_end+1, y_start:y_end+1, z_start:z_end+1] = 1
+    instance_matrix = self.trees[index][-1]
+    print(f'third test: {np.sum(test_grid == instance_matrix)}/{np.prod(instance_matrix.shape)}')
     for quad in quads:
       x_start, y_start, z_start, x_end, y_end, z_end = quad
       
@@ -557,7 +552,6 @@ class VoxelGrid:
     :rtype: List[Tuple[int, int, int, int, int, int]]
     """
     
-    
     instance_matrix = self.trees[index][-1]
     
     planes = self.capture_planes(instance_matrix)
@@ -567,7 +561,14 @@ class VoxelGrid:
       z_position, plane_set = next(iter(planes.items()))
       x_start, y_start, x_end, y_end = next(iter(plane_set))
       quads.append(self.capture_quad(z_position, x_start, y_start, x_end, y_end, planes))
-      
+    
+    test_grid = np.zeros(instance_matrix.shape, dtype=np.int8)
+    for quad in quads:
+      x_start, y_start, z_start, x_end, y_end, z_end = quad
+      test_grid[x_start:x_end+1, y_start:y_end+1, z_start:z_end+1] = 1  
+    
+    print(f'first test: {np.sum(test_grid == instance_matrix)}/{np.prod(instance_matrix.shape)}')
+    
     return quads
   
   def capture_quad(self, z_position: int, x_start: int, y_start: int, x_end: int, y_end: int, planes: Dict[int, Set[Tuple[int, int, int, int]]]):
@@ -591,18 +592,18 @@ class VoxelGrid:
     :rtype: Tuple[int, int, int, int, int, int]
     """
     offset_minus = 0
-    while self.plane_matches_segment_length(z_position + offset_minus, x_start, y_start, y_end, planes): 
+    while self.plane_matches_segment_length(z_position + offset_minus, x_start, x_end, y_start, y_end, planes): 
       offset_minus -= 1
     offset_minus += 1
     
     offset_plus = 1
-    while self.plane_matches_segment_length(z_position + offset_plus, x_start, y_start, y_end, planes): 
+    while self.plane_matches_segment_length(z_position + offset_plus, x_start, x_end, y_start, y_end, planes): 
       offset_plus += 1
     offset_plus -= 1
     
     return x_start, y_start, z_position + offset_minus, x_end, y_end, z_position + offset_plus
   
-  def plane_matches_segment_length(self, z_position: int, x_start: int, y_start: int, y_end: int, planes: Dict[int, Set[Tuple[int, int, int, int]]]):
+  def plane_matches_segment_length(self, z_position: int, x_start: int, x_end: int, y_start: int, y_end: int, planes: Dict[int, Set[Tuple[int, int, int, int]]]):
     """
     Checks if a plane segment matches the given x_start, y_start, and y_end within the specified z position.
     
@@ -625,7 +626,7 @@ class VoxelGrid:
     segments = planes[z_position]
     
     for (seg_x_start, seg_y_start, seg_x_end, seg_y_end) in segments:
-      if seg_x_start == x_start and seg_y_start == y_start and seg_y_end == y_end:
+      if seg_x_start == x_start and seg_x_end == x_end and seg_y_start == y_start and seg_y_end == y_end:
         planes[z_position].remove((seg_x_start, seg_y_start, seg_x_end, seg_y_end))
         if (len(planes[z_position]) == 0):
           del planes[z_position]
@@ -654,7 +655,15 @@ class VoxelGrid:
         planes[z_position].add(plane)
       else:
         planes[z_position] = {plane}
-        
+    
+    # test_grid = np.zeros(instance_matrix.shape, dtype=np.int8)
+    # for key in planes:
+    #   for plane in planes[key]:
+    #     x_start, y_start, x_end, y_end = plane
+    #     test_grid[x_start:x_end+1, y_start:y_end+1, key] = 1
+    
+    # print(f'first test: {np.sum(test_grid == instance_matrix)}/{np.prod(instance_matrix.shape)}')
+    
     return planes
 
   def capture_plane(self, y_position: int, z_position: int, x_start: int, x_end: int, rows: Dict[Tuple[int, int], Set[Tuple[int, int]]]):
@@ -752,6 +761,15 @@ class VoxelGrid:
           rows[(begin_or_end[1], begin_or_end[2])].add((start, begin_or_end[0]))
         else:
           rows[(begin_or_end[1], begin_or_end[2])] = {(start, begin_or_end[0])}
-          
+    
+    # test_grid = np.zeros(instance_matrix.shape, dtype=np.int8)
+    # for key in rows.keys():
+    #   y, z = key
+    #   for row in rows[key]:
+    #     x_start, x_end = row
+    #     test_grid[x_start:x_end+1, y, z] = 1
+      
+    # print(f'first test: {np.sum(test_grid == instance_matrix)}/{np.prod(instance_matrix.shape)}')
+    
     return rows
     
