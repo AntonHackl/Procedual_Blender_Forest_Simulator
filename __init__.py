@@ -92,7 +92,7 @@ class ForestGenerator(bpy.types.Operator):
         
   def execute(self, context):
     self.update_tree_configurations()
-    if not (self.updateForest):
+    if not self.updateForest:
       return {'FINISHED'}
     
     surface_data = []
@@ -114,7 +114,7 @@ class ForestGenerator(bpy.types.Operator):
     generation_results = [voxel_grid.greedy_meshing(i) for i in range(len(voxel_grid.trees))]
     tree_configuration_indices = [generation_result[0] for generation_result in generation_results]
     tree_meshes = [generation_result[1] for generation_result in generation_results]
-    return {'FINISHED'}
+    
     rest_collection = bpy.data.collections.get("Rest")
     if not rest_collection:
       rest_collection = bpy.data.collections.new("Rest")
@@ -140,6 +140,8 @@ class ForestGenerator(bpy.types.Operator):
     
     original_cursor_location = bpy.context.scene.cursor.location.copy()
     for i, tree_mesh in enumerate(tree_meshes):
+      if i == 0:
+        break
       bpy.context.view_layer.update()
       rest_collection.objects.unlink(tree_mesh)
       crown_collection.objects.link(tree_mesh)

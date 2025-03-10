@@ -492,12 +492,12 @@ class VoxelGrid:
     for quad in quads:
       x_start, y_start, z_start, x_end, y_end, z_end = quad
       
-      x_start_position = x_start * self.cube_size - self.cube_size / 2
-      y_start_postion = y_start * self.cube_size - self.cube_size / 2
-      z_start_position = z_start * self.cube_size - self.cube_size / 2
-      x_end_position = x_end * self.cube_size + self.cube_size / 2
-      y_end_position = y_end * self.cube_size + self.cube_size / 2
-      z_end_position = z_end * self.cube_size + self.cube_size / 2
+      x_start_position = x_start * self.cube_size
+      y_start_postion = y_start * self.cube_size
+      z_start_position = z_start * self.cube_size
+      x_end_position = x_end * self.cube_size + self.cube_size 
+      y_end_position = y_end * self.cube_size + self.cube_size
+      z_end_position = z_end * self.cube_size + self.cube_size
       
       verts = [
         (x_start_position, y_start_postion, z_start_position),
