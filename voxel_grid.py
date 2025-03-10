@@ -118,10 +118,11 @@ class VoxelGrid:
       sampled_position = sampled_point[0]
       chosen_configuration_index = sampled_point[1]
       self.add_tree((sampled_position[0], sampled_position[1], 0), chosen_configuration_index, tree_configurations[chosen_configuration_index])
-  
+    self.evaluate_forest()
+    self.evaluated_forest = True 
   def add_tree(self, position: Tuple[int, int, int], configuration_identifier: int, tree_configuration: dict[str, float]):
     crown_type_to_function = {
-      "sphere": self.add_sphere_tree,
+      "ellipsoid": self.add_ellipsoid_tree,
       "columnar": self.add_columnar_tree
     }
     
@@ -155,7 +156,7 @@ class VoxelGrid:
     for i in stem_height_range:
       tree_grid[j[mask]+tree_grid.shape[0]//2, k[mask]+tree_grid.shape[1]//2, i] = CellType.stem.value
   
-  def add_sphere_tree(self, tree_grid: np.ndarray, tree_configuration: dict[str, float]):
+  def add_ellipsoid_tree(self, tree_grid: np.ndarray, tree_configuration: dict[str, float]):
     """
     Adds a tree to the voxel grid at the specified position with the given dimensions.
     
@@ -172,20 +173,24 @@ class VoxelGrid:
     """
     
     stem_height = tree_configuration["stem_height"]
-    crown_diameter = tree_configuration["crown_width"]
+    crown_width = tree_configuration["crown_width"]
+    crown_height = tree_configuration["crown_height"]
     crown_offset = tree_configuration["crown_offset"]
     
-    crown_radius = int(crown_diameter / 2 / self.cube_size)
-
-    # Add crown
-    crown_range = np.arange(-crown_radius, crown_radius + 1)
-    i, j, k = np.meshgrid(crown_range, crown_range, crown_range, indexing='ij')
-    mask = i**2 + j**2 + k**2 <= crown_radius**2
-
-    tree_grid[j[mask]+tree_grid.shape[0]//2, k[mask]+tree_grid.shape[1]//2, i[mask] + int((stem_height-crown_offset) / self.cube_size + crown_radius)] = CellType.crown.value
+    half_width_cube_size = int(crown_width / 2 / self.cube_size)
+    half_height_cube_size = int(crown_height / 2 / self.cube_size)
     
-    # self.trees.append((int(position[0] / self.cube_size) - len(tree_grid)//2, int(position[1] / self.cube_size) - len(tree_grid[0])//2, int(position[2] / self.cube_size), tree_grid))
-  
+    crown_range_xy = np.arange(-half_width_cube_size, half_width_cube_size + 1)
+    crown_range_z = np.arange(-half_height_cube_size, half_height_cube_size + 1)
+    i, j, k = np.meshgrid(crown_range_xy, crown_range_xy, crown_range_z, indexing='ij')
+    mask = (i/half_width_cube_size)**2 + (j/half_width_cube_size)**2 + (k/half_height_cube_size)**2 <= 1
+    
+    tree_grid[
+      i[mask]+tree_grid.shape[0]//2, 
+      j[mask]+tree_grid.shape[1]//2, 
+      k[mask] + int((stem_height-crown_offset) / self.cube_size + half_height_cube_size)
+    ] = CellType.crown.value
+    
   def add_columnar_tree(self, tree_grid: np.ndarray, tree_configuration: dict[str, float]):
     stem_height = tree_configuration["stem_height"]
     crown_diameter = tree_configuration["crown_width"]

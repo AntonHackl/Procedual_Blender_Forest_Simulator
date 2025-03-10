@@ -622,7 +622,7 @@ class SCATree():
     # self.leafParticles = availableParticleSettings(self, context)[0]
     # self.objectParticles = availableParticleSettings(self, context)[0]
     self.emitterScale = emitterScale
-    self.barMaterial = availableBarkMaterials(self, context)[0]
+    # self.barMaterial = availableBarkMaterials(self, context)[0]
     self.updateTree = False
     self.noModifiers = noModifiers
     self.subSurface = subSurface
