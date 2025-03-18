@@ -13,7 +13,7 @@ from .poisson_disk_sampling import poisson_disk_sampling_on_surface
 class CellType(Enum):
   no_tree = 0
   stem = 1
-  crown = 1
+  crown = 2
   collision = 3
 
 class VoxelGrid:
@@ -34,10 +34,7 @@ class VoxelGrid:
 
     self.cube_size = 0.5
 
-  def generate_mesh(self, index):
-    if not self.evaluated_forest:
-      self.evaluate_forest()
-      
+  def generate_mesh(self, index):  
     crown_mesh = self.generate_crown_mesh(index)
     
     return self.trees[index][3], crown_mesh
@@ -118,12 +115,14 @@ class VoxelGrid:
       sampled_position = sampled_point[0]
       chosen_configuration_index = sampled_point[1]
       self.add_tree((sampled_position[0], sampled_position[1], 0), chosen_configuration_index, tree_configurations[chosen_configuration_index])
-    self.evaluate_forest()
+    self.evaluate_forest(tree_configurations)
     self.evaluated_forest = True 
+    
   def add_tree(self, position: Tuple[int, int, int], configuration_identifier: int, tree_configuration: dict[str, float]):
     crown_type_to_function = {
       "ellipsoid": self.add_ellipsoid_tree,
-      "columnar": self.add_columnar_tree
+      "columnar": self.add_columnar_tree,
+      "spreading": self.add_spreading_tree
     }
     
     self.evaluated_forest = False
@@ -211,8 +210,42 @@ class VoxelGrid:
         k[mask]+tree_grid.shape[1]//2, 
         i + int((stem_height - crown_offset) / self.cube_size)
       ] = CellType.crown.value 
+      
+  def add_spreading_tree(self, tree_grid: np.ndarray, tree_configuration: dict[str, float]):
+    """
+    
+    :param position: The (x, y, z) coordinates where the tree will be added.
+    :type position: Tuple[int, int, int]
+    :param stem_diameter: The diameter of the tree's stem.
+    :type stem_diameter: float
+    :param stem_height: The height of the tree's stem.
+    :type stem_height: float
+    :param crown_diameter: The diameter of the tree's crown.
+    :type crown_diameter: float
+    :return: None
+    :rtype: None
+    """
+    
+    stem_height = tree_configuration["stem_height"]
+    crown_width = tree_configuration["crown_width"]
+    crown_height = tree_configuration["crown_height"]
+    crown_offset = tree_configuration["crown_offset"]
+    
+    half_width_cube_size = int(crown_width / 2 / self.cube_size)
+    half_height_cube_size = int(crown_height / 2 / self.cube_size)
+    
+    crown_range_xy = np.arange(-half_width_cube_size, half_width_cube_size + 1)
+    crown_range_z = np.arange(-half_height_cube_size, half_height_cube_size + 1)
+    i, j, k = np.meshgrid(crown_range_xy, crown_range_xy, crown_range_z, indexing='ij')
+    mask = (i/half_width_cube_size)**2 + (j/half_width_cube_size)**2 + (k/half_height_cube_size)**2 <= 1 & (k >= 0)
+    
+    tree_grid[
+      i[mask]+tree_grid.shape[0]//2, 
+      j[mask]+tree_grid.shape[1]//2, 
+      k[mask] + int((stem_height-crown_offset) / self.cube_size)
+    ] = CellType.crown.value
   
-  def evaluate_forest(self):
+  def evaluate_forest(self, tree_configurations: List[Dict[str, Any]]):
     """
     Evaluates the forest by checking for potential collisions between trees and resolving them.
     This method sets the `evaluated_forest` attribute to True indicating that it does not have to be
@@ -224,14 +257,16 @@ class VoxelGrid:
     
     self.evaluated_forest = True
     
-    max_range = np.max([t[:2] for t in self.trees])
+    tree_widths = [tree_configurations[tree[3]]["crown_width"] for tree in self.trees]
+    
+    max_range = np.max(tree_widths)
     
     tree_positions = KDTree([t[:3] for t in self.trees])
     
     evaluated_pairs: Set[Tuple[int, int]] = set()
     
     for i, tree in enumerate(self.trees):
-      potential_collisions = tree_positions.query_ball_point(tree[:3], max_range)
+      potential_collisions = tree_positions.query_ball_point(tree[:3], max_range + tree_widths[i])
       
       for collision_index in potential_collisions:
         if collision_index == i:
@@ -478,9 +513,6 @@ class VoxelGrid:
     :rtype: bpy.types.Object
     """  
     
-    if not self.evaluated_forest:
-      self.evaluate_forest()
-    
     quads = self.capture_quads(index)
     
     mesh = bpy.data.meshes.new(f"VoxelMesh")
@@ -492,12 +524,12 @@ class VoxelGrid:
     for quad in quads:
       x_start, y_start, z_start, x_end, y_end, z_end = quad
       
-      x_start_position = x_start * self.cube_size
-      y_start_postion = y_start * self.cube_size
-      z_start_position = z_start * self.cube_size
-      x_end_position = x_end * self.cube_size + self.cube_size 
-      y_end_position = y_end * self.cube_size + self.cube_size
-      z_end_position = z_end * self.cube_size + self.cube_size
+      x_start_position = x_start * self.cube_size - self.cube_size
+      y_start_postion = y_start * self.cube_size - self.cube_size
+      z_start_position = z_start * self.cube_size - self.cube_size
+      x_end_position = x_end * self.cube_size 
+      y_end_position = y_end * self.cube_size
+      z_end_position = z_end * self.cube_size
       
       verts = [
         (x_start_position, y_start_postion, z_start_position),
@@ -708,6 +740,7 @@ class VoxelGrid:
     :return: A dictionary mapping (y, z) coordinates to sets of tuples representing the start and end x-coordinates of row segments.
     :rtype: Dict[Tuple[int, int], Set[Tuple[int, int]]]
     """
+    instance_matrix = (instance_matrix == CellType.crown.value) * 1
     
     diff_x = np.diff(instance_matrix, axis=0, append=0, prepend=0)
     

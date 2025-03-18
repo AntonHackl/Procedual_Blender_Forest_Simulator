@@ -311,7 +311,8 @@ def createGeometry(tree, power=0.5, scale=0.01,
     
     # prune if requested
     tree.branchpoints, index2position = pruneTree(tree.branchpoints, prune)
-        
+    if len(tree.branchpoints) < 2:
+        return None
     # Loop over all branchpoints and create connected edges
     #print('\ngenerating skeleton')
     
@@ -476,8 +477,8 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
     branch_node_positions = [bp.v for bp in tree.branchpoints if bp not in trunk_nodes]
     branch_node_indices = [i for i in range(len(tree.branchpoints)) if i not in trunk_indices]
 
-    trunk_material = create_material("TrunkMaterial", (1, 0, 0, 1)) # Red color
-    branch_material = create_material("BranchMaterial", (0, 1, 0, 1)) # Green color
+    trunk_material = create_material("TrunkMaterial", (0.77, 0.64, 0.52, 1)) # light brown
+    branch_material = create_material("BranchMaterial", (0.36, 0.25, 0.20, 1)) # dark brown
     assign_material(obj_new, trunk_material)
     assign_material(obj_new, branch_material)
     trunk_vertex_indices = []
@@ -702,6 +703,9 @@ class SCATree():
           self.emitterScale,
           self.timePerformance,
           self.pruningGen)
+      
+      if obj_new is None:
+          return None
       
       # bpy.ops.object.material_slot_add()
       # obj_new.material_slots[-1].material = barkmaterials[self.barkMaterial]
