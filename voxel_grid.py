@@ -263,7 +263,7 @@ class VoxelGrid:
     
     tree_positions = KDTree([t[:3] for t in self.trees])
     
-    evaluated_pairs: Set[Tuple[int, int]] = set()
+    pairs_to_evaluate: Set[Tuple[int, int]] = set()
     
     for i, tree in enumerate(self.trees):
       potential_collisions = tree_positions.query_ball_point(tree[:3], max_range + tree_widths[i])
@@ -271,14 +271,16 @@ class VoxelGrid:
       for collision_index in potential_collisions:
         if collision_index == i:
           continue
-        pair = (i if i < collision_index else collision_index, collision_index if i < collision_index else i) 
-        if pair in evaluated_pairs:
-          continue
-        evaluated_pairs.add(pair)
-        
-        other_tree = self.trees[collision_index]
-        
-        self.resolve_collision(tree, other_tree)
+        pair = (min(i, collision_index), max(i, collision_index))
+        pairs_to_evaluate.add(pair)
+    
+    pairs_to_evaluate_list = list(pairs_to_evaluate)
+    random.shuffle(pairs_to_evaluate_list)
+    
+    for pair in pairs_to_evaluate_list:
+      tree = self.trees[pair[0]]
+      other_tree = self.trees[pair[1]]
+      self.resolve_collision(tree, other_tree)
         
   def resolve_collision(self, tree1: Tuple[int, int, int, np.ndarray], tree2: Tuple[int, int, int, np.ndarray]):
     """

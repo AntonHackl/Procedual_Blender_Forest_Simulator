@@ -10,7 +10,7 @@ import json
 import bpy
 from mathutils import Vector,Euler,Matrix,Quaternion
 from .voxel_grid import VoxelGrid
-from .sca_not_init import SCATree
+from .tree_mesh_generation import SCATree
 import bmesh
 
 bl_info = {
@@ -59,6 +59,16 @@ class ForestGenerator(bpy.types.Operator):
   tree_configurations: bpy.props.CollectionProperty(type=TreeConfiguration) 
   updateForest: bpy.props.BoolProperty(name="Generate Forest", default=False)
 
+  def __init__(self):
+    self.voxel_model_related_configuration_fields = {
+      "crown_width",
+      "crown_height",
+      "crown_offset",
+      "crown_type",
+      "stem_height",
+      "stem_diameter",
+    }
+  
   @classmethod
   def poll(self, context):
     # Check if we are in object mode
@@ -110,9 +120,21 @@ class ForestGenerator(bpy.types.Operator):
       with open(tree_config.path) as tree_config_json:
         tree_configurations.append(json.load(tree_config_json))
         configuration_weights.append(tree_config.weight)
-        
+    
+    tree_voxel_configurations = [
+      {k : v for k, v in tree_configuration.items() 
+        if k in self.voxel_model_related_configuration_fields} 
+      for tree_configuration in tree_configurations
+    ]
+    
+    tree_mesh_configurations = [
+      {k : v for k, v in tree_configuration.items()
+        if k not in self.voxel_model_related_configuration_fields}
+      for tree_configuration in tree_configurations
+    ]
+    
     voxel_grid = VoxelGrid()
-    voxel_grid.generate_forest(tree_configurations, configuration_weights, surface_data)
+    voxel_grid.generate_forest(tree_voxel_configurations, configuration_weights, surface_data)
     generation_results = [voxel_grid.greedy_meshing(i) for i in range(len(voxel_grid.trees))]
     tree_configuration_indices = [generation_result[0] for generation_result in generation_results]
     tree_meshes = [generation_result[1] for generation_result in generation_results]
@@ -158,16 +180,13 @@ class ForestGenerator(bpy.types.Operator):
       
       sca_tree = SCATree(
         context,
-        numberOfEndpoints=tree_configurations[tree_configuration_indices[i]]["numberOfEndpoints"],
-        interNodeLength=tree_configurations[tree_configuration_indices[i]]["interNodeLength"],
-        killDistance=0.1,
         useGroups=True,
         crownGroup="Crown",
         exclusionGroup="Rest",
         noModifiers=False,
         subSurface=True,
         randomSeed=random.randint(0, 1_000_000),
-        scale=0.02
+        **tree_mesh_configurations[tree_configuration_indices[i]]
       )
       
       sca_tree_mesh = sca_tree.create_tree(context)

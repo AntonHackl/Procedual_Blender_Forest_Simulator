@@ -557,8 +557,8 @@ class SCATree():
 
   def __init__(self, 
               context,
-              interNodeLength=0.75,
-              killDistance=3.,
+              interNodeLength=0.25,
+              killDistance=0.1,
               influenceRange=15.,
               tropism=0.,
               power=0.3,
