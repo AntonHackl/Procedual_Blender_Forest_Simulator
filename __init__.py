@@ -10,7 +10,7 @@ import json
 import bpy
 from mathutils import Vector,Euler,Matrix,Quaternion
 from .voxel_grid import VoxelGrid
-from .sca_not_init import SCATree
+from .tree_mesh_generation import SCATree
 import bmesh
 
 bl_info = {
@@ -30,7 +30,7 @@ class TreeConfiguration(bpy.types.PropertyGroup):
       name="Tree Configuration File", 
       description="Path to the file", 
       subtype='FILE_PATH',
-      default="C:\\Users\\anton\\Desktop\\sphere_tree.json"  
+      default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data I\\tree_configs\\sphere_tree.json"  
     )
     weight: bpy.props.FloatProperty(
       name="Weight",
@@ -45,20 +45,30 @@ class ForestGenerator(bpy.types.Operator):
   bl_options = {'REGISTER', 'UNDO'}
 
   surface: bpy.props.StringProperty(
-    name="Surface File", 
+    name="Surface", 
     description="Path to the file", 
     subtype='FILE_PATH',
-    default="C:\\Users\\anton\\Desktop\\surface.csv"
+    default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data I\\surface.csv"
   )
   treeConfigurationCount: bpy.props.IntProperty(
-    name="Tree Configuration Count",
-    description="Number of trees to generate",
+    name="Number of tree configurations",
+    description="Number of tree configurations",
     default=2,
     min=1,
   )
   tree_configurations: bpy.props.CollectionProperty(type=TreeConfiguration) 
-  updateForest: bpy.props.BoolProperty(name="Update Tree", default=False)
+  updateForest: bpy.props.BoolProperty(name="Generate Forest", default=False)
 
+  def __init__(self):
+    self.voxel_model_related_configuration_fields = {
+      "crown_width",
+      "crown_height",
+      "crown_offset",
+      "crown_type",
+      "stem_height",
+      "stem_diameter",
+    }
+  
   @classmethod
   def poll(self, context):
     # Check if we are in object mode
@@ -75,20 +85,22 @@ class ForestGenerator(bpy.types.Operator):
   
   def draw(self, context):
     layout = self.layout
-
-    columns = layout.row()
-    col1 = columns.column()
-
-    box = col1.box()
+    col1 = layout.column()
+    box = layout.box()
     box.prop(self, 'updateForest', icon='MESH_DATA')
     box.label(text="Generation Settings:")
     box.prop(self, 'surface')
     box.prop(self, 'treeConfigurationCount')
 
     for i, tree_config in enumerate(self.tree_configurations):
-      row = box.row()
-      row.prop(tree_config, "path")
-      row.prop(tree_config, "weight")
+      col = box.column(align=True)
+      col.scale_x = 20  # Adjust width scaling
+      col.alignment = 'EXPAND'  # Expand to fit available space
+
+      col.prop(tree_config, "path", text="Tree Config")
+      col.prop(tree_config, "weight", text="Weight")
+      
+      col.separator()
         
   def execute(self, context):
     
@@ -112,18 +124,21 @@ class ForestGenerator(bpy.types.Operator):
       with open(tree_config.path) as tree_config_json:
         tree_configurations.append(json.load(tree_config_json))
         configuration_weights.append(tree_config.weight)
-        
-    end_time = time.time()
-    print(f"Reading files took {end_time - start_time} seconds")
-    generation_steps['reading_files'] = end_time - start_time
     
-    start_time = time.time()
+    tree_voxel_configurations = [
+      {k : v for k, v in tree_configuration.items() 
+        if k in self.voxel_model_related_configuration_fields} 
+      for tree_configuration in tree_configurations
+    ]
+    
+    tree_mesh_configurations = [
+      {k : v for k, v in tree_configuration.items()
+        if k not in self.voxel_model_related_configuration_fields}
+      for tree_configuration in tree_configurations
+    ]
+    
     voxel_grid = VoxelGrid()
-    voxel_grid.generate_forest(tree_configurations, configuration_weights, surface_data)
-    end_time = time.time()
-    print(f"Generating forest took {end_time - start_time} seconds")
-    generation_steps['generating_forest'] = end_time - start_time
-    start_time = time.time()
+    voxel_grid.generate_forest(tree_voxel_configurations, configuration_weights, surface_data)
     generation_results = [voxel_grid.greedy_meshing(i) for i in range(len(voxel_grid.trees))]
     tree_configuration_indices = [generation_result[0] for generation_result in generation_results]
     tree_meshes = [generation_result[1] for generation_result in generation_results]
@@ -174,25 +189,24 @@ class ForestGenerator(bpy.types.Operator):
       
       sca_tree = SCATree(
         context,
-        numberOfEndpoints=tree_configurations[tree_configuration_indices[i]]["numberOfEndpoints"],
-        interNodeLength=tree_configurations[tree_configuration_indices[i]]["interNodeLength"],
-        killDistance=0.1,
         useGroups=True,
         crownGroup="Crown",
         exclusionGroup="Rest",
         noModifiers=False,
         subSurface=True,
         randomSeed=random.randint(0, 1_000_000),
-        scale=.01,
-        power=0.7,
+        **tree_mesh_configurations[tree_configuration_indices[i]]
       )
-      sca_tree_mesh = sca_tree.create_tree(context)
       
-      sca_tree_mesh.location = bpy.context.scene.cursor.location.copy()
+      sca_tree_mesh = sca_tree.create_tree(context)
       
       crown_collection.objects.unlink(tree_mesh)
       rest_collection.objects.link(tree_mesh)
       bpy.context.view_layer.update()
+      
+      if sca_tree_mesh == None:
+        continue
+      sca_tree_mesh.location = bpy.context.scene.cursor.location.copy()
       
     self.updateForest = False
     bpy.context.scene.cursor.location = original_cursor_location
