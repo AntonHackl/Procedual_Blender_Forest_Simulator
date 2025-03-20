@@ -327,7 +327,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
             nv=len(verts)
             roots.add(bp)
         bp.index=n
-    radii = np.array(radii)/np.max(radii)
+    # radii = np.array(radii)/np.max(radii)
     timings.add('skeleton')
     
     # native skinning method
@@ -452,7 +452,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
     print('geometry default time', end-start)  
     # bpy.context.scene.objects.active = obj_new
     start = time()
-    obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, (radii**power)*scale)
+    obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, (np.array(radii)**power)*scale)
     bpy.ops.object.shade_smooth()
     
     timings.add('leaves')
@@ -722,8 +722,9 @@ class SCATree():
       
       self.updateTree = False
       
-      if self.timePerformance:
+      if self.timePerformance or True:
           timings.add('Total')
+          print('geometry timings')
           print(timings)
       
       self.timings = timings

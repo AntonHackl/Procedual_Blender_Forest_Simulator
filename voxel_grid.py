@@ -7,6 +7,7 @@ from skimage.measure import marching_cubes
 from typing import Tuple, List, Dict, Set, Any
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
+import time
 
 from .poisson_disk_sampling import poisson_disk_sampling_on_surface
 
@@ -108,14 +109,24 @@ class VoxelGrid:
       return False 
     return tree_grid[x][y][z] == CellType.crown.value
       
-  def generate_forest(self, tree_configurations: List[Dict[str, Any]], configuration_weights: List[float], surface: List[Tuple[int, int]]):
+  def generate_forest(self, tree_configurations: List[Dict[str, Any]], configuration_weights: List[float], surface: List[Tuple[int, int]], generation_steps):
+    start_time = time.time()
     crown_widths = [tree_configuration["crown_width"] for tree_configuration in tree_configurations]
     sampled_points = poisson_disk_sampling_on_surface(surface, configuration_weights, crown_widths)
+    end_time = time.time()
+    generation_steps['tree_placement'] = end_time - start_time
+    print(f"Poisson disk sampling took {end_time - start_time} seconds")
+    start_time = time.time()
     for sampled_point in sampled_points:
       sampled_position = sampled_point[0]
       chosen_configuration_index = sampled_point[1]
       self.add_tree((sampled_position[0], sampled_position[1], 0), chosen_configuration_index, tree_configurations[chosen_configuration_index])
+    end_time = time.time()
+    generation_steps['voxel_grid_generation'] = end_time - start_time
+    start_time = time.time()
     self.evaluate_forest(tree_configurations)
+    end_time = time.time()
+    generation_steps['collision_resolution'] = end_time - start_time
     self.evaluated_forest = True 
     
   def add_tree(self, position: Tuple[int, int, int], configuration_identifier: int, tree_configuration: dict[str, float]):
@@ -257,16 +268,16 @@ class VoxelGrid:
     
     self.evaluated_forest = True
     
-    tree_widths = [tree_configurations[tree[3]]["crown_width"] for tree in self.trees]
+    tree_widths = np.array([tree_configurations[tree[3]]["crown_width"] for tree in self.trees]) / self.cube_size
     
-    max_range = np.max(tree_widths)
+    max_range = np.max(tree_widths/2)
     
     tree_positions = KDTree([t[:3] for t in self.trees])
     
     pairs_to_evaluate: Set[Tuple[int, int]] = set()
     
     for i, tree in enumerate(self.trees):
-      potential_collisions = tree_positions.query_ball_point(tree[:3], max_range + tree_widths[i])
+      potential_collisions = tree_positions.query_ball_point(tree[:3], max_range/2 + tree_widths[i]/2)
       
       for collision_index in potential_collisions:
         if collision_index == i:

@@ -25,6 +25,12 @@ bl_info = {
   "tracker_url": "",
   "category": "Add Mesh"}
 
+def time_json_name():
+  return 'C:/Users/anton/Documents/Uni/Spatial Data I/time_measurement.json'
+
+def time_run_name():
+  return "greedy_meshing"
+
 class TreeConfiguration(bpy.types.PropertyGroup):
     path: bpy.props.StringProperty(
       name="Tree Configuration File", 
@@ -103,13 +109,21 @@ class ForestGenerator(bpy.types.Operator):
       col.separator()
         
   def execute(self, context):
-    
+    random.seed(250)
     generation_steps = {}
+    
+    with open(time_json_name()) as time_measurements_file:
+      time_measurements = json.load(time_measurements_file)
+      if time_run_name() not in time_measurements:
+        time_measurements[time_run_name()] = {}
+      generation_steps = time_measurements[time_run_name()]
     
     start_time = time.time()
     self.update_tree_configurations()
     if not self.updateForest:
       return {'FINISHED'}
+    
+    self.updateForest = False
     
     surface_data = []
     if '.csv' in self.surface:
@@ -136,13 +150,18 @@ class ForestGenerator(bpy.types.Operator):
         if k not in self.voxel_model_related_configuration_fields}
       for tree_configuration in tree_configurations
     ]
+    end_time = time.time()
+    print(f"Reading configuration files took {end_time - start_time} seconds")
+    generation_steps['reading_configuration_files'] = end_time - start_time
     
     voxel_grid = VoxelGrid()
-    voxel_grid.generate_forest(tree_voxel_configurations, configuration_weights, surface_data)
+    voxel_grid.generate_forest(tree_voxel_configurations, configuration_weights, surface_data, generation_steps)
+    start_time = time.time()
     generation_results = [voxel_grid.greedy_meshing(i) for i in range(len(voxel_grid.trees))]
     tree_configuration_indices = [generation_result[0] for generation_result in generation_results]
     tree_meshes = [generation_result[1] for generation_result in generation_results]
     
+    start_time = time.time()
     rest_collection = bpy.data.collections.get("Rest")
     if not rest_collection:
       rest_collection = bpy.data.collections.new("Rest")
@@ -168,8 +187,8 @@ class ForestGenerator(bpy.types.Operator):
     
     end_time = time.time()
     print(f"Generating voxel meshes took {end_time - start_time} seconds")
-    generation_steps['generating_voxel_meshes'] = end_time - start_time
-    
+    generation_steps['voxel_mesh_generation'] = end_time - start_time
+    return {'FINISHED'}
     start_time = time.time()
     original_cursor_location = bpy.context.scene.cursor.location.copy()
     for i, tree_mesh in enumerate(tree_meshes):
@@ -212,13 +231,11 @@ class ForestGenerator(bpy.types.Operator):
     bpy.context.scene.cursor.location = original_cursor_location
     end_time = time.time()
     print(f"Generating tree meshes took {end_time - start_time} seconds")
-    generation_steps['generating_tree_meshes'] = end_time - start_time
+    generation_steps['tree_mesh_generation'] = end_time - start_time
     generation_steps['total_time'] = sum(generation_steps.values())
     
-    with open('C:/Users/anton/Documents/Uni/Spatial Data I/time_measurement.json', 'r') as time_measurements_file:
-      time_measurements = json.load(time_measurements_file)
-    time_measurements['greedy_meshing'] = generation_steps
-    with open('C:/Users/anton/Documents/Uni/Spatial Data I/time_measurement.json', 'w') as time_measurements_file:
+    with open(time_json_name(), 'w') as time_measurements_file:
+      time_measurements[time_run_name()] = generation_steps
       json.dump(time_measurements, time_measurements_file)
     return {'FINISHED'}
         
