@@ -310,7 +310,10 @@ class VoxelGrid:
     x1, y1, z1, _, tree1_grid = tree1
     x2, y2, z2, _, tree2_grid = tree2
     
-    translation = np.array([x1 - x2, y1 - y2, z1 - z2])
+    tree1_shape = tree1_grid.shape
+    tree2_shape = tree2_grid.shape
+    translation = np.array([x1, y1, z1]) - np.array([tree1_shape[0]/2, tree1_shape[1]/2, 0]) - np.array([x2, y2, z2]) + np.array([tree2_shape[0]/2, tree2_shape[1]/2, 0])
+    translation = translation.astype(int)
     
     tree1_filled_cells = np.argwhere(tree1_grid == CellType.crown.value)
     
