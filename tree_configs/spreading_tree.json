@@ -1,0 +1,11 @@
+{
+  "numberOfEndpoints": 1000,
+  "interNodeLength": 0.4,
+  "stem_height": 10,
+  "stem_diameter": 1,
+  "crown_type": "spreading",
+  "crown_width": 20,
+  "crown_height": 15,
+  "crown_offset": 5,
+  "scale": 0.02
+}

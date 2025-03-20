@@ -1,0 +1,11 @@
+{
+  "numberOfEndpoints": 800,
+  "interNodeLength": 0.4,
+  "stem_height": 10,
+  "stem_diameter": 1,
+  "crown_type": "ellipsoid",
+  "crown_width": 7,
+  "crown_height": 9,
+  "crown_offset": 5,
+  "scale": 0.04
+}
