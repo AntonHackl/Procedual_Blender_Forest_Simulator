@@ -1,4 +1,5 @@
 import sys
+
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
 
 import time
@@ -6,6 +7,8 @@ from typing import Any, List, Dict
 import random
 import csv
 import json
+from scipy.spatial import KDTree
+import numpy as np
 
 import bpy
 from mathutils import Vector,Euler,Matrix,Quaternion
@@ -139,6 +142,7 @@ class ForestGenerator(bpy.types.Operator):
     generation_results = [voxel_grid.greedy_meshing(i) for i in range(len(voxel_grid.trees))]
     tree_configuration_indices = [generation_result[0] for generation_result in generation_results]
     tree_meshes = [generation_result[1] for generation_result in generation_results]
+    tree_mesh_locations = KDTree([tree_mesh.location for tree_mesh in tree_meshes])
     
     rest_collection = bpy.data.collections.get("Rest")
     if not rest_collection:
@@ -149,7 +153,7 @@ class ForestGenerator(bpy.types.Operator):
     if not crown_collection:
       crown_collection = bpy.data.collections.new("Crown")
       bpy.context.scene.collection.children.link(crown_collection)
-      
+    
     exlusion_collection = bpy.data.collections.get("Exclusion")
     if not exlusion_collection:
       exlusion_collection = bpy.data.collections.new("Exclusion")
@@ -163,6 +167,7 @@ class ForestGenerator(bpy.types.Operator):
         tree_mesh.data.materials.append(material)
       rest_collection.objects.link(tree_mesh)
       
+    max_crown_width = max([tree_configuration["crown_width"] for tree_configuration in tree_voxel_configurations]) / 2
     original_cursor_location = bpy.context.scene.cursor.location.copy()
     for i, tree_mesh in enumerate(tree_meshes):
       bpy.context.view_layer.update()
@@ -170,15 +175,24 @@ class ForestGenerator(bpy.types.Operator):
       crown_collection.objects.link(tree_mesh)
       bpy.context.view_layer.update()
       
+      max_range = max_crown_width + tree_voxel_configurations[tree_configuration_indices[i]]["crown_width"] / 2
+      
+      in_range_trees = tree_mesh_locations.query_ball_point(tree_mesh.location, max_range)
+      
+      for tree_index in in_range_trees:
+        if tree_index == i:
+          continue
+        rest_collection.objects.unlink(tree_meshes[tree_index])
+        exlusion_collection.objects.link(tree_meshes[tree_index])
+      
       tree_location = tree_mesh.location.copy()
       bpy.context.scene.cursor.location = tree_location
       bpy.context.view_layer.update()
       
       sca_tree = SCATree(
-        context,
         useGroups=True,
         crownGroup="Crown",
-        exclusionGroup="Rest",
+        exclusionGroup="Exclusion",
         noModifiers=False,
         subSurface=True,
         randomSeed=random.randint(0, 1_000_000),
@@ -194,6 +208,12 @@ class ForestGenerator(bpy.types.Operator):
       if sca_tree_mesh == None:
         continue
       sca_tree_mesh.location = bpy.context.scene.cursor.location.copy()
+      
+      for tree_index in in_range_trees:
+        if tree_index == i:
+          continue
+        exlusion_collection.objects.unlink(tree_meshes[tree_index])
+        rest_collection.objects.link(tree_meshes[tree_index])
       
     self.updateForest = False
     bpy.context.scene.cursor.location = original_cursor_location

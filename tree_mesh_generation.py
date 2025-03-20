@@ -556,7 +556,6 @@ def assign_vertices_to_group(obj, group_name, vertex_indices):
 class SCATree():
 
   def __init__(self, 
-              context,
               interNodeLength=0.25,
               killDistance=0.1,
               influenceRange=15.,
