@@ -218,6 +218,12 @@ class ForestGenerator(bpy.types.Operator):
     self.updateForest = False
     bpy.context.scene.cursor.location = original_cursor_location
     
+    for collection_name in ['Crown', 'Exclusion', 'Rest']:
+      collection = bpy.data.collections.get(collection_name)
+      for obj in collection.objects:
+        bpy.data.objects.remove(obj, do_unlink=True)
+      bpy.data.collections.remove(collection)
+    
     return {'FINISHED'}
         
   def create_random_material(self, name):
