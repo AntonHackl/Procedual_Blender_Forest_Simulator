@@ -212,8 +212,9 @@ class SCA:
     niterations=0.0
     newendpointsper1000 /= 1000.0
     t=expovariate(newendpointsper1000) if newendpointsper1000 > 0.0 else 1 # time to the first new 'endpoint add event'
-
+    time_sum = 0.0
     for i in range(self.maxiterations):
+        start_time = time()
         self.growBranches(i)
         if maxtime>0 and time()-starttime>maxtime: break
         if newendpointsper1000 > 0.0:
@@ -230,7 +231,8 @@ class SCA:
             self.apicalcontrol -= self.apicalstep
             if self.apicalcontrol < 0 :
                 self.apicalcontrol = 0.0
-
+        time_sum += time()-start_time
+    print('average time per iteration', (time_sum)/self.maxiterations)
     self.branchpoints=[]
     for bi in range(len(self.bp)//3):
         bp = self.bp[bi*3], self.bp[bi*3+1], self.bp[bi*3+2]

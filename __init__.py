@@ -197,16 +197,14 @@ class ForestGenerator(bpy.types.Operator):
       bpy.context.view_layer.update()
       
       tree_location = tree_mesh.location.copy()
-      tree_dimensions = tree_mesh.dimensions
       bpy.context.scene.cursor.location = Vector((
-        tree_location[0] + tree_dimensions.x / 2, 
-        tree_location[1] + tree_dimensions.y / 2, 
+        tree_location[0], 
+        tree_location[1], 
         tree_location[2]
       ))
       bpy.context.view_layer.update()
       
       sca_tree = SCATree(
-        context,
         useGroups=True,
         crownGroup="Crown",
         exclusionGroup="Rest",

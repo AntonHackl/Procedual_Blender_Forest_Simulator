@@ -60,8 +60,7 @@ class VoxelGrid:
     return obj
   
   def add_voxel_to_bmesh(self, bm, x, y, z, tree_grid, size):
-    voxel_pos = (x * size, y * size, z * size)
-    
+    voxel_pos = self.translate_voxel_to_local_space(tree_grid, (x, y, z))
     offsets = [
       (-1, 0, 0), 
       (1, 0, 0), 

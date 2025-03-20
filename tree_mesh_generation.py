@@ -560,7 +560,6 @@ def assign_vertices_to_group(obj, group_name, vertex_indices):
 class SCATree():
 
   def __init__(self, 
-              context,
               interNodeLength=0.25,
               killDistance=0.1,
               influenceRange=15.,
@@ -641,92 +640,92 @@ class SCATree():
     self.apicalcontroltiming = apicalcontroltiming    
 
   def create_tree(self, context):
-      # if not self.updateTree:
-      #     return {'PASS_THROUGH'}
+    # if not self.updateTree:
+    #     return {'PASS_THROUGH'}
 
-      timings=Timer()
-      
-      
-      # necessary otherwise ray casts toward these objects may fail. However if nothing is selected, we get a runtime error ...
-      # and if an object is selected that has no edit mode (e.g. an empty) we get a type error
-      try:
-          bpy.ops.object.mode_set(mode='EDIT', toggle=False)
-          bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
-      except RuntimeError:
-          pass
-      except TypeError:
-          pass
-      
+    timings=Timer()
+    
+    
+    # necessary otherwise ray casts toward these objects may fail. However if nothing is selected, we get a runtime error ...
+    # and if an object is selected that has no edit mode (e.g. an empty) we get a type error
+    try:
+        bpy.ops.object.mode_set(mode='EDIT', toggle=False)
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+    except RuntimeError:
+        pass
+    except TypeError:
+        pass
+    
 
-      if self.useGroups:
-          size,minp = groupExtends(self.crownGroup)
-          volumefie=partial(groupdistribution,self.crownGroup,self.shadowGroup,self.shadowDensity,self.randomSeed,size,minp-bpy.context.scene.cursor.location)
-      else:
-          volumefie=partial(ellipsoid2,self.crownSize*self.crownShape,self.crownSize,Vector((0,0,self.crownSize+self.crownOffset)),self.surfaceBias,self.topBias)
-      
-      startingpoints = []
-      if self.useTrunkGroup:
-          if self.trunkGroup in bpy.data.collections :
-              for ob in bpy.data.collection[self.trunkGroup].objects :
-                  p = ob.location - context.scene.cursor.location
-                  startingpoints.append(Branchpoint(p,None, 0))
-      
-      timings.add('scastart')
-      start = time()
-      sca = SCA(NBP = self.maxIterations,
-          NENDPOINTS=self.numberOfEndpoints,
-          d=self.internodeLength,
-          KILLDIST=self.killDistance,
-          INFLUENCE=self.influenceRange,
-          SEED=self.randomSeed,
-          TROPISM=self.tropism,
-          volume=volumefie,
-          exclude=lambda p: insidegroup(p, self.exclusionGroup),
-          startingpoints=startingpoints,
-          apicalcontrol=self.apicalcontrol,
-          apicalcontrolfalloff=self.apicalcontrolfalloff,
-          apicaltiming=self.apicalcontroltiming
-          )
-      timings.add('sca')
-          
-      sca.iterate(newendpointsper1000=self.newEndPointsPer1000,maxtime=self.maxTime)
-      timings.add('iterate')
-      
-      if self.showMarkers:
-          mesh = createMarkers(sca, self.markerScale)
-          obj_markers = bpy.data.objects.new(mesh.name, mesh)
-          base = bpy.context.collection.objects.link(obj_markers)
-      timings.add('showmarkers')
-      end = time()
-      print('SCA Time',end-start)
-      start = time()
-      obj_new=createGeometry(sca,self.power,self.scale,
-          self.noModifiers, self.skinMethod, self.subSurface,
-          self.bLeaf, 
-        #   self.leafParticles if self.addLeaves else 'None', 
-        #   self.objectParticles if self.addLeaves else 'None',
-            'None',
-            'None',
-          self.emitterScale,
-          self.timePerformance,
-          self.pruningGen)
-      
-      if obj_new is None:
-          return None
-      
-      # bpy.ops.object.material_slot_add()
-      # obj_new.material_slots[-1].material = barkmaterials[self.barkMaterial]
-      
-      if self.showMarkers:
-          obj_markers.parent = obj_new
-      
-      self.updateTree = False
-      
-      if self.timePerformance or True:
-          timings.add('Total')
-          print('geometry timings')
-          print(timings)
-      
-      self.timings = timings
-      
-      return obj_new
+    if self.useGroups:
+        size,minp = groupExtends(self.crownGroup)
+        volumefie=partial(groupdistribution,self.crownGroup,self.shadowGroup,self.shadowDensity,self.randomSeed,size,minp-bpy.context.scene.cursor.location)
+    else:
+        volumefie=partial(ellipsoid2,self.crownSize*self.crownShape,self.crownSize,Vector((0,0,self.crownSize+self.crownOffset)),self.surfaceBias,self.topBias)
+    
+    startingpoints = []
+    if self.useTrunkGroup:
+        if self.trunkGroup in bpy.data.collections :
+            for ob in bpy.data.collection[self.trunkGroup].objects :
+                p = ob.location - context.scene.cursor.location
+                startingpoints.append(Branchpoint(p,None, 0))
+    
+    timings.add('scastart')
+    start = time()
+    sca = SCA(NBP = self.maxIterations,
+        NENDPOINTS=self.numberOfEndpoints,
+        d=self.internodeLength,
+        KILLDIST=self.killDistance,
+        INFLUENCE=self.influenceRange,
+        SEED=self.randomSeed,
+        TROPISM=self.tropism,
+        volume=volumefie,
+        exclude=lambda p: insidegroup(p, self.exclusionGroup),
+        startingpoints=startingpoints,
+        apicalcontrol=self.apicalcontrol,
+        apicalcontrolfalloff=self.apicalcontrolfalloff,
+        apicaltiming=self.apicalcontroltiming
+        )
+    timings.add('sca')
+    intermittend_end = time()
+    sca.iterate(newendpointsper1000=self.newEndPointsPer1000,maxtime=self.maxTime)
+    timings.add('iterate')
+    
+    if self.showMarkers:
+        mesh = createMarkers(sca, self.markerScale)
+        obj_markers = bpy.data.objects.new(mesh.name, mesh)
+        base = bpy.context.collection.objects.link(obj_markers)
+    timings.add('showmarkers')
+    end = time()
+    print('SCA Time',end-start)
+    start = time()
+    obj_new=createGeometry(sca,self.power,self.scale,
+        self.noModifiers, self.skinMethod, self.subSurface,
+        self.bLeaf, 
+    #   self.leafParticles if self.addLeaves else 'None', 
+    #   self.objectParticles if self.addLeaves else 'None',
+        'None',
+        'None',
+        self.emitterScale,
+        self.timePerformance,
+        self.pruningGen)
+    
+    if obj_new is None:
+        return None
+    
+    # bpy.ops.object.material_slot_add()
+    # obj_new.material_slots[-1].material = barkmaterials[self.barkMaterial]
+    
+    if self.showMarkers:
+        obj_markers.parent = obj_new
+    
+    self.updateTree = False
+    
+    if self.timePerformance:
+        timings.add('Total')
+        print('geometry timings')
+        print(timings)
+    
+    self.timings = timings
+    
+    return obj_new
