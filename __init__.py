@@ -162,7 +162,7 @@ class ForestGenerator(bpy.types.Operator):
       else:
         tree_mesh.data.materials.append(material)
       rest_collection.objects.link(tree_mesh)
-    return {'FINISHED'}
+      
     original_cursor_location = bpy.context.scene.cursor.location.copy()
     for i, tree_mesh in enumerate(tree_meshes):
       bpy.context.view_layer.update()
@@ -171,12 +171,7 @@ class ForestGenerator(bpy.types.Operator):
       bpy.context.view_layer.update()
       
       tree_location = tree_mesh.location.copy()
-      tree_dimensions = tree_mesh.dimensions
-      bpy.context.scene.cursor.location = Vector((
-        tree_location[0] + tree_dimensions.x / 2, 
-        tree_location[1] + tree_dimensions.y / 2, 
-        tree_location[2]
-      ))
+      bpy.context.scene.cursor.location = tree_location
       bpy.context.view_layer.update()
       
       sca_tree = SCATree(
