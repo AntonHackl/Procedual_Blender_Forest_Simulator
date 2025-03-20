@@ -103,6 +103,7 @@ class ForestGenerator(bpy.types.Operator):
       col.separator()
         
   def execute(self, context):
+    random.seed(250)
     self.update_tree_configurations()
     if not self.updateForest:
       return {'FINISHED'}
@@ -161,7 +162,7 @@ class ForestGenerator(bpy.types.Operator):
       else:
         tree_mesh.data.materials.append(material)
       rest_collection.objects.link(tree_mesh)
-    
+    return {'FINISHED'}
     original_cursor_location = bpy.context.scene.cursor.location.copy()
     for i, tree_mesh in enumerate(tree_meshes):
       bpy.context.view_layer.update()

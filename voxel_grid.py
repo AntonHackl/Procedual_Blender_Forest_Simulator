@@ -299,7 +299,10 @@ class VoxelGrid:
     x1, y1, z1, _, tree1_grid = tree1
     x2, y2, z2, _, tree2_grid = tree2
     
-    translation = np.array([x1 - x2, y1 - y2, z1 - z2])
+    tree1_shape = tree1_grid.shape
+    tree2_shape = tree2_grid.shape
+    translation = np.array([x1, y1, z1]) - np.array([tree1_shape[0]/2, tree1_shape[1]/2, 0]) - np.array([x2, y2, z2]) + np.array([tree2_shape[0]/2, tree2_shape[1]/2, 0])
+    translation = translation.astype(int)
     
     tree1_filled_cells = np.argwhere(tree1_grid == CellType.crown.value)
     
@@ -307,10 +310,9 @@ class VoxelGrid:
     tree1_filled_cells = tree1_filled_cells + translation
     
     tree2_collision_cells = self.get_colliding_cells(tree2_grid, tree1_filled_cells)
-    tree1_collision_cells = tree2_collision_cells - translation
-    
     if len(tree2_collision_cells) == 0:
       return
+    tree1_collision_cells = tree2_collision_cells - translation
     
     tree1_collision_edge_cells = self.get_collision_edge_cells(tree1_grid, tree2_collision_cells - translation)
     tree2_collision_edge_cells = self.get_collision_edge_cells(tree2_grid, tree2_collision_cells)
@@ -323,7 +325,8 @@ class VoxelGrid:
   
   def get_colliding_cells(self, tree_grid: np.ndarray, filled_translated_cells: np.ndarray):
     contained_cells = self.trim_mask(tree_grid, filled_translated_cells)
-    
+    if len(contained_cells) == 0:
+      return np.array([])
     collision_indices = np.argwhere(tree_grid[contained_cells[:, 0], contained_cells[:, 1], contained_cells[:, 2]] == CellType.crown.value)
     collision_cells = contained_cells[collision_indices]
     
@@ -502,7 +505,21 @@ class VoxelGrid:
     
     tree2_grid[tree2_cells_closer[:, 0], tree2_cells_closer[:, 1], tree2_cells_closer[:, 2]] = CellType.crown.value
     tree2_grid[tree2_cells_farther[:, 0], tree2_cells_farther[:, 1], tree2_cells_farther[:, 2]] = CellType.no_tree.value
+  
+  def translate_voxel_to_local_space(self, tree: Tuple[int, int, int, np.ndarray], voxel: Tuple[int, int, int]):
+    """
+    Translates a voxel in the global space to the local space of the tree.
     
+    :param tree: The tree's position and voxel grid.
+    :type tree: Tuple[int, int, int, np.ndarray]
+    :param voxel: The voxel's position in the global space.
+    :type voxel: Tuple[int, int, int]
+    :return: The voxel's position in the local space of the tree.
+    :rtype: Tuple[int, int, int]
+    """
+    tree_shape = tree[-1].shape
+    return ((voxel[0] - tree_shape[0]/2) * self.cube_size, (voxel[1] - tree_shape[1]/2) * self.cube_size, voxel[2] * self.cube_size)
+  
   def greedy_meshing(self, index: int):
     """
     Generate a mesh object using greedy meshing algorithm for a given index.
@@ -526,12 +543,15 @@ class VoxelGrid:
     for quad in quads:
       x_start, y_start, z_start, x_end, y_end, z_end = quad
       
-      x_start_position = x_start * self.cube_size - self.cube_size
-      y_start_postion = y_start * self.cube_size - self.cube_size
-      z_start_position = z_start * self.cube_size - self.cube_size
-      x_end_position = x_end * self.cube_size 
-      y_end_position = y_end * self.cube_size
-      z_end_position = z_end * self.cube_size
+      x_start_translated, y_start_translated, z_start_translated = self.translate_voxel_to_local_space(self.trees[index], (x_start, y_start, z_start))
+      x_end_translated, y_end_translated, z_end_translated = self.translate_voxel_to_local_space(self.trees[index], (x_end, y_end, z_end))
+      
+      x_start_position = x_start_translated - self.cube_size
+      y_start_postion = y_start_translated - self.cube_size
+      z_start_position = z_start_translated - self.cube_size
+      x_end_position = x_end_translated 
+      y_end_position = y_end_translated
+      z_end_position = z_end_translated
       
       verts = [
         (x_start_position, y_start_postion, z_start_position),
