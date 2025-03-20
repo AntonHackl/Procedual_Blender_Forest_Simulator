@@ -35,17 +35,11 @@ def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], configurati
     return random_point_in_triangle(*chosen_triangle)
 
   def too_near_to_sample(point, points):
-    # return any(
-    #   np.linalg.norm(np.asarray([point[0][0], point[0][1]]) 
-    #     - np.asarray([[neighbor_point[0][0], neighbor_point[0][1]] for neighbor_point in points]), axis=1) 
-    #   <= np.array([max(crown_widths[neighbor_point[1]], crown_widths[point[1]]) / 2 + 
-    #                min(crown_widths[neighbor_point[1]], crown_widths[point[1]]) * 0.2 for neighbor_point in points])
-    # )
     return any(
       np.linalg.norm(np.asarray([point[0][0], point[0][1]]) 
         - np.asarray([[neighbor_point[0][0], neighbor_point[0][1]] for neighbor_point in points]), axis=1) 
       <= np.array([max(crown_widths[neighbor_point[1]], crown_widths[point[1]]) / 2 + 
-                   min(crown_widths[neighbor_point[1]], crown_widths[point[1]]) / 2 for neighbor_point in points])
+                   min(crown_widths[neighbor_point[1]], crown_widths[point[1]]) * 0.2 for neighbor_point in points])
     )
 
   def generate_random_point_around(point, new_configuration_index):

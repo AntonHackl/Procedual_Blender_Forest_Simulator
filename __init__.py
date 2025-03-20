@@ -188,7 +188,6 @@ class ForestGenerator(bpy.types.Operator):
     end_time = time.time()
     print(f"Generating voxel meshes took {end_time - start_time} seconds")
     generation_steps['voxel_mesh_generation'] = end_time - start_time
-    return {'FINISHED'}
     start_time = time.time()
     original_cursor_location = bpy.context.scene.cursor.location.copy()
     for i, tree_mesh in enumerate(tree_meshes):

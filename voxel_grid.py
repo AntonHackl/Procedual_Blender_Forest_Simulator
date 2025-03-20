@@ -517,6 +517,20 @@ class VoxelGrid:
     tree2_grid[tree2_cells_closer[:, 0], tree2_cells_closer[:, 1], tree2_cells_closer[:, 2]] = CellType.crown.value
     tree2_grid[tree2_cells_farther[:, 0], tree2_cells_farther[:, 1], tree2_cells_farther[:, 2]] = CellType.no_tree.value
     
+  def translate_voxel_to_local_space(self, tree: Tuple[int, int, int, np.ndarray], voxel: Tuple[int, int, int]):
+    """
+    Translates a voxel in the global space to the local space of the tree.
+    
+    :param tree: The tree's position and voxel grid.
+    :type tree: Tuple[int, int, int, np.ndarray]
+    :param voxel: The voxel's position in the global space.
+    :type voxel: Tuple[int, int, int]
+    :return: The voxel's position in the local space of the tree.
+    :rtype: Tuple[int, int, int]
+    """
+    tree_shape = tree[-1].shape
+    return ((voxel[0] - tree_shape[0]/2) * self.cube_size, (voxel[1] - tree_shape[1]/2) * self.cube_size, voxel[2] * self.cube_size)
+  
   def greedy_meshing(self, index: int):
     """
     Generate a mesh object using greedy meshing algorithm for a given index.
@@ -540,12 +554,15 @@ class VoxelGrid:
     for quad in quads:
       x_start, y_start, z_start, x_end, y_end, z_end = quad
       
-      x_start_position = x_start * self.cube_size - self.cube_size
-      y_start_postion = y_start * self.cube_size - self.cube_size
-      z_start_position = z_start * self.cube_size - self.cube_size
-      x_end_position = x_end * self.cube_size 
-      y_end_position = y_end * self.cube_size
-      z_end_position = z_end * self.cube_size
+      x_start_translated, y_start_translated, z_start_translated = self.translate_voxel_to_local_space(self.trees[index], (x_start, y_start, z_start))
+      x_end_translated, y_end_translated, z_end_translated = self.translate_voxel_to_local_space(self.trees[index], (x_end, y_end, z_end))
+      
+      x_start_position = x_start_translated - self.cube_size
+      y_start_postion = y_start_translated - self.cube_size
+      z_start_position = z_start_translated - self.cube_size
+      x_end_position = x_end_translated 
+      y_end_position = y_end_translated
+      z_end_position = z_end_translated
       
       verts = [
         (x_start_position, y_start_postion, z_start_position),
