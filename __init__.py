@@ -78,6 +78,12 @@ class ForestGenerator(bpy.types.Operator):
     return context.mode == 'OBJECT'
   
   def update_tree_configurations(self):
+    """
+    Updates the tree configurations by adding or removing elements to match the desired tree configuration count.
+    
+    :return: None
+    """
+    
     current_count = len(self.tree_configurations)
     if self.treeConfigurationCount > current_count:
         for _ in range(self.treeConfigurationCount - current_count):
@@ -87,6 +93,15 @@ class ForestGenerator(bpy.types.Operator):
             self.tree_configurations.remove(len(self.tree_configurations) - 1)
   
   def draw(self, context):
+    """
+    Draws the UI layout for the add-on, including generation settings and tree configurations.
+    
+    :param context: The context in which the UI is being drawn.
+    :type context: bpy.types.Context
+    :return: None
+    :rtype: None
+    """
+    
     layout = self.layout
     col1 = layout.column()
     box = layout.box()
@@ -106,6 +121,15 @@ class ForestGenerator(bpy.types.Operator):
       col.separator()
         
   def execute(self, context):
+    """
+    Executes the process of procedurally generating a forest. The forest is generated based on the configuration of the operator.
+    
+    :param context: The Blender context in which the operator is executed.
+    :type context: bpy.types.Context
+    :return: A set indicating the execution status of the operator.
+    :rtype: Set[str, str]
+    """
+    
     random.seed(250)
     self.update_tree_configurations()
     if not self.updateForest:

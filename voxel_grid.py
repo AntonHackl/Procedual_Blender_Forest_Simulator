@@ -109,6 +109,25 @@ class VoxelGrid:
     return tree_grid[x][y][z] == CellType.crown.value
       
   def generate_forest(self, tree_configurations: List[Dict[str, Any]], configuration_weights: List[float], surface: List[Tuple[int, int]]):
+    """
+    Generates a forest by placing trees on a surface based on specified configurations and weights.
+    
+    :param tree_configurations: A list of dictionaries, each containing the parameters for a tree:
+      - "stem_height" (float): The height of the tree stem.
+      - "stem_diameter" (float): The diameter of the tree stem.
+      - "crown_width" (float): The width of the tree crown.
+      - "crown_height" (float): The height of the tree crown.
+      - "crown_offset" (float): The vertical offset of the crown from the top of the stem.
+      - "crown_type" (str): The type of the tree crown (e.g., "ellipsoid", "columnar", "spreading").
+    :type tree_configurations: List[Dict[str, Any]]
+    :param configuration_weights: A list of weights corresponding to each tree configuration, used for sampling.
+    :type configuration_weights: List[float]
+    :param surface: A list of tuples representing the surface points where trees can be placed.
+    :type surface: List[Tuple[int, int]]
+    :return: None
+    """
+    
+    
     crown_widths = [tree_configuration["crown_width"] for tree_configuration in tree_configurations]
     sampled_points = poisson_disk_sampling_on_surface(surface, configuration_weights, crown_widths)
     for sampled_point in sampled_points:
@@ -119,6 +138,24 @@ class VoxelGrid:
     self.evaluated_forest = True 
     
   def add_tree(self, position: Tuple[int, int, int], configuration_identifier: int, tree_configuration: dict[str, float]):
+    """
+    Adds a tree to the forest on the specified position and with the specified configuration.
+
+    :param position: The position of the tree's stem in the voxel grid.
+    :type position: Tuple[int, int, int]
+    :param configuration_identifier: The identifier for the tree configuration.
+    :type configuration_identifier: int
+    :param tree_configuration: A dictionary containing the tree parameters:
+      - "stem_height" (float): The height of the tree stem.
+      - "stem_diameter" (float): The diameter of the tree stem.
+      - "crown_width" (float): The width of the tree crown.
+      - "crown_height" (float): The height of the tree crown.
+      - "crown_offset" (float): The vertical offset of the crown from the top of the stem.
+      - "crown_type" (str): The type of the tree crown (e.g., "ellipsoid", "columnar", "spreading").
+    :type tree_configuration: dict[str, float]
+    :return: None
+    """
+    
     crown_type_to_function = {
       "ellipsoid": self.add_ellipsoid_tree,
       "columnar": self.add_columnar_tree,
@@ -144,6 +181,18 @@ class VoxelGrid:
     self.trees.append((int(position[0] / self.cube_size), int(position[1] / self.cube_size), int(position[2] / self.cube_size), configuration_identifier, tree_grid))
     
   def add_stem(self, tree_grid: np.ndarray, stem_diameter: float, stem_height: float):
+    """
+    Adds a cylindrical-shaped tree stem to the given tree grid based on the specified dimensions.
+    
+    :param tree_grid: A 3D numpy array representing the voxel grid where the tree stem will be added.
+    :type tree_grid: np.ndarray
+    :param stem_diameter: The diameter of the tree stem in world units.
+    :type stem_diameter: float
+    :param stem_height: The height of the tree stem in world units.
+    :type stem_height: float
+    :return: None
+    """ 
+    
     stem_radius = int(stem_diameter / 2 / self.cube_size)
 
     #Add stem
@@ -157,19 +206,19 @@ class VoxelGrid:
   
   def add_ellipsoid_tree(self, tree_grid: np.ndarray, tree_configuration: dict[str, float]):
     """
-    Adds a tree to the voxel grid at the specified position with the given dimensions.
+    Adds an ellipsoid-shaped tree crown to the given tree grid based on the specified configuration.
     
-    :param position: The (x, y, z) coordinates where the tree will be added.
-    :type position: Tuple[int, int, int]
-    :param stem_diameter: The diameter of the tree's stem.
-    :type stem_diameter: float
-    :param stem_height: The height of the tree's stem.
-    :type stem_height: float
-    :param crown_diameter: The diameter of the tree's crown.
-    :type crown_diameter: float
+    :param tree_grid: A 3D numpy array representing the voxel grid where the tree will be added.
+    :type tree_grid: np.ndarray
+    :param tree_configuration: A dictionary containing the tree parameters:
+      - "stem_height" (float): The height of the tree stem.
+      - "crown_width" (float): The width of the tree crown.
+      - "crown_height" (float): The height of the tree crown.
+      - "crown_offset" (float): The vertical offset of the crown from the top of the stem.
+    :type tree_configuration: dict[str, float]
     :return: None
-    :rtype: None
     """
+    
     
     stem_height = tree_configuration["stem_height"]
     crown_width = tree_configuration["crown_width"]
@@ -191,6 +240,20 @@ class VoxelGrid:
     ] = CellType.crown.value
     
   def add_columnar_tree(self, tree_grid: np.ndarray, tree_configuration: dict[str, float]):
+    """
+    Adds an cylindrical-shaped tree crown to the given tree grid based on the specified configuration.
+    
+    :param tree_grid: A 3D numpy array representing the voxel grid where the tree will be added.
+    :type tree_grid: np.ndarray
+    :param tree_configuration: A dictionary containing the tree parameters:
+      - "stem_height" (float): The height of the tree stem.
+      - "crown_width" (float): The width of the tree crown.
+      - "crown_height" (float): The height of the tree crown.
+      - "crown_offset" (float): The vertical offset of the crown from the top of the stem.
+    :type tree_configuration: dict[str, float]
+    :return: None
+    """
+    
     stem_height = tree_configuration["stem_height"]
     crown_diameter = tree_configuration["crown_width"]
     crown_height = tree_configuration["crown_height"]
@@ -213,17 +276,17 @@ class VoxelGrid:
       
   def add_spreading_tree(self, tree_grid: np.ndarray, tree_configuration: dict[str, float]):
     """
+    Adds an semi-sphere-shaped tree crown to the given tree grid based on the specified configuration.
     
-    :param position: The (x, y, z) coordinates where the tree will be added.
-    :type position: Tuple[int, int, int]
-    :param stem_diameter: The diameter of the tree's stem.
-    :type stem_diameter: float
-    :param stem_height: The height of the tree's stem.
-    :type stem_height: float
-    :param crown_diameter: The diameter of the tree's crown.
-    :type crown_diameter: float
+    :param tree_grid: A 3D numpy array representing the voxel grid where the tree will be added.
+    :type tree_grid: np.ndarray
+    :param tree_configuration: A dictionary containing the tree parameters:
+      - "stem_height" (float): The height of the tree stem.
+      - "crown_width" (float): The width of the tree crown.
+      - "crown_height" (float): The height of the tree crown.
+      - "crown_offset" (float): The vertical offset of the crown from the top of the stem.
+    :type tree_configuration: dict[str, float]
     :return: None
-    :rtype: None
     """
     
     stem_height = tree_configuration["stem_height"]
@@ -324,6 +387,17 @@ class VoxelGrid:
     self.assign_collision_cells(tree1_grid, tree2_grid, tree1_collision_edge_cells, tree2_collision_edge_cells, translation)
   
   def get_colliding_cells(self, tree_grid: np.ndarray, filled_translated_cells: np.ndarray):
+    """
+    Identifies the cell volumes between two trees.
+    
+    :param tree_grid: A 3D numpy array representing the spatial grid of the tree structure.
+    :type tree_grid: np.ndarray
+    :param filled_translated_cells: A 2D numpy array containing the coordinates of filled cells after translation.
+    :type filled_translated_cells: np.ndarray
+    :return: A 2D numpy array of shape (n, 3) containing the coordinates of colliding cells, where n is the number of collisions.
+    :rtype: np.ndarray
+    """
+    
     contained_cells = self.trim_mask(tree_grid, filled_translated_cells)
     if len(contained_cells) == 0:
       return np.array([])
@@ -592,6 +666,7 @@ class VoxelGrid:
     """
     
     instance_matrix = self.trees[index][-1]
+    instance_matrix = (instance_matrix == CellType.crown.value) * 1
     
     planes = self.capture_planes(instance_matrix)
     
@@ -762,7 +837,6 @@ class VoxelGrid:
     :return: A dictionary mapping (y, z) coordinates to sets of tuples representing the start and end x-coordinates of row segments.
     :rtype: Dict[Tuple[int, int], Set[Tuple[int, int]]]
     """
-    instance_matrix = (instance_matrix == CellType.crown.value) * 1
     
     diff_x = np.diff(instance_matrix, axis=0, append=0, prepend=0)
     

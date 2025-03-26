@@ -375,24 +375,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
 
         # add a skin modifier
         if skinmethod == 'BLENDER':
-          # sphere_id = 0
-          # add spheres to demonstrate trunk nodes
-          # for position in trunk_node_positions:
-          #   # if bp.connections <= 1 and bp.parent is not None and tree.branchpoints[bp.parent].shoot != bp:
-          #   # print(tree.branchpoints[bp.parent].connections)
-          #     # bpy.ops.mesh.primitive_uv_sphere_add(radius=0.1, location=(bp.v[0], bp.v[1], bp.v[2]))
-          #     # sphere = bpy.context.object
-          #   mesh_sphere = bpy.data.meshes.new('Basic_Sphere')
-          #   bm = bmesh.new()
-          #   bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, diameter=0.1)
-          #   bm.to_mesh(mesh_sphere)
-          #   bm.free()
-          #   basic_sphere = bpy.data.objects.new("Basic_Sphere", mesh_sphere)
-          #   basic_sphere.location = position
-          #   basic_sphere.name = f"Sphere_{sphere_id}"
-          #   sphere_id += 1
-          #   collection = bpy.data.collections.get("Collection")
-          #   collection.objects.link(basic_sphere)
           
           bpy.ops.object.modifier_add(type='SKIN')
           bpy.context.active_object.modifiers[-1].use_smooth_shade=True
