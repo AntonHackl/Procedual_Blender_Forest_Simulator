@@ -205,6 +205,18 @@ class SCA:
       if not self.exclude(Vector(newbp)):
         self.addBranchPoint(newbp, newbpp, generation)
 
+  def nodeRelocation(self):
+    """move the branchpoints halfway to their parent"""
+    relocated_branchpoints = []
+    for i in range(len(self.bpp)):
+      bp_parent_index = self.bpp[i]
+      if bp_parent_index is not None:
+        relocated_branchpoints.append((self.bp[i*3  ] + self.bp[bp_parent_index*3  ]) / 2.0)
+        relocated_branchpoints.append((self.bp[i*3+1] + self.bp[bp_parent_index*3+1]) / 2.0)
+        relocated_branchpoints.append((self.bp[i*3+2] + self.bp[bp_parent_index*3+2]) / 2.0)
+      else:
+        relocated_branchpoints.extend(self.bp[i*3:i*3+3])
+    self.bp = array('d', relocated_branchpoints)
    
   def iterate(self, newendpointsper1000=0, maxtime=0.0):
     starttime=time()      
@@ -231,6 +243,8 @@ class SCA:
             if self.apicalcontrol < 0 :
                 self.apicalcontrol = 0.0
 
+    self.nodeRelocation()
+
     self.branchpoints=[]
     for bi in range(len(self.bp)//3):
         bp = self.bp[bi*3], self.bp[bi*3+1], self.bp[bi*3+2]
@@ -244,7 +258,7 @@ class SCA:
                 parent.apex = self.branchpoints[-1]
             else:
                 parent.shoot = self.branchpoints[-1]
-
+    
     for bp in self.branchpoints:
         bpp = bp
         while bpp.parent is not None:

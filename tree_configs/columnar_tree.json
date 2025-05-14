@@ -1,6 +1,7 @@
 {
   "numberOfEndpoints": 800,
   "interNodeLength": 0.25,
+  "influence": 5,
   "stem_height": 6,
   "stem_diameter": 1,
   "crown_type": "columnar",

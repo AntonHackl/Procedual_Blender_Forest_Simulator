@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
+sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python311\\site-packages")
 
 import time
 from typing import Any, List, Dict
@@ -62,15 +62,14 @@ class ForestGenerator(bpy.types.Operator):
   tree_configurations: bpy.props.CollectionProperty(type=TreeConfiguration) 
   updateForest: bpy.props.BoolProperty(name="Generate Forest", default=False)
 
-  def __init__(self):
-    self.voxel_model_related_configuration_fields = {
-      "crown_width",
-      "crown_height",
-      "crown_offset",
-      "crown_type",
-      "stem_height",
-      "stem_diameter",
-    }
+  voxel_model_related_configuration_fields = {
+    "crown_width",
+    "crown_height",
+    "crown_offset",
+    "crown_type",
+    "stem_height",
+    "stem_diameter",
+  }
   
   @classmethod
   def poll(self, context):
@@ -269,7 +268,7 @@ def register():
 
 def unregister():
   bpy.types.VIEW3D_MT_mesh_add.remove(menu_func)
-  bpy.utils.register_class(TreeConfiguration)
+  bpy.utils.unregister_class(TreeConfiguration)
   bpy.utils.unregister_class(ForestGenerator)
       
 if __name__ == "__main__":

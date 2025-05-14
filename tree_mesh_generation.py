@@ -39,7 +39,7 @@ from time import time
 from random import random,gauss
 import random as ra
 from functools import partial
-from math import sin,cos
+from math import radians, sin,cos
 import numpy as np
 
 import bpy
@@ -444,6 +444,89 @@ def createGeometry(tree, power=0.5, scale=0.01,
     
     return obj_processed
 
+def add_leaves_to_tree(tree, leave_nodes, obj_new):
+    # Create a new mesh for the leaves
+    leaf_mesh = bpy.data.meshes.new("Leaves")
+    leaf_verts = []
+    leaf_faces = []
+    
+    # uv_layer = leaf_mesh.loops.layers.uv.new()
+    
+    for leave_node in leave_nodes:
+        pos = leave_node.v
+        direction = (pos - tree.branchpoints[leave_node.parent].v).normalized() if leave_node.parent is not None else Vector((0, 0, 1))
+
+        # First quad
+        v1 = Vector((-0.1,-0.1,0))
+        v2 = Vector((0.1,-0.1,0))
+        v3 = Vector((0.1,0.1,0))
+        v4 = Vector((-0.1,0.1,0))
+
+        # Rotate the second quad vertices 90° from the direction vector
+        # current_direction = Vector((0, 0, 1))  # Assuming the initial direction is along the Z-axis
+        # rotation = current_direction.rotation_difference(direction)
+        
+        axis = Vector((0, 0, 1))  # Z-axis
+        angle = radians(90)  # Convert degrees to radians
+
+        # Create a rotation matrix
+        rotation_matrix = Vector((0, 0, 1)).rotation_difference(direction).to_matrix().to_4x4()
+        rotation_matrix = Matrix.Rotation(angle, 4, axis) @ rotation_matrix
+        
+        v1 = rotation_matrix @ v1
+        v2 = rotation_matrix @ v2
+        v3 = rotation_matrix @ v3
+        v4 = rotation_matrix @ v4
+        
+        v1 += pos
+        v2 += pos
+        v3 += pos
+        v4 += pos
+
+        leaf_verts.extend([v1, v2, v3, v4])
+        start_index = len(leaf_verts) - 4
+        # Faces for the two quads
+        leaf_faces.append((start_index + 0, start_index + 1, start_index + 2, start_index + 3))
+
+    # Assign vertices and faces to the leaf mesh
+    leaf_mesh.from_pydata(leaf_verts, [], leaf_faces)
+    leaf_mesh.update()
+    uv_layer = leaf_mesh.uv_layers.new(name="UVMap")
+    uv_data = uv_layer.data
+    for face in leaf_mesh.polygons:
+        for loop_index, uv in zip(range(face.loop_start, face.loop_start + face.loop_total), [(0, 0), (1, 0), (1, 1), (0, 1)]):
+            uv_data[loop_index].uv = uv
+            
+    # Create a new material
+    mat = bpy.data.materials.new(name="LeafMaterial")
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+
+    # Load image
+    image_path = "C:/Users/anton/Documents/Uni/Spatial Data I/Procedual_Blender_Forest_Simulator/textures/chestnut_summer_color.png"  # Replace with your image path
+    image = bpy.data.images.load(image_path)
+
+    # Create texture node
+    tex_image = mat.node_tree.nodes.new('ShaderNodeTexImage')
+    tex_image.image = image
+    
+    # Connect the texture to the base color
+    mat.node_tree.links.new(bsdf.inputs['Base Color'], tex_image.outputs['Color'])
+    
+    # Create a new object for the leaves
+    leaf_obj = bpy.data.objects.new("Leaves", leaf_mesh)
+    
+    if leaf_obj.data.materials:
+        leaf_obj.data.materials[0] = mat
+    else:
+        leaf_obj.data.materials.append(mat)
+
+    # Link the leaf object to the same collection as obj_new
+    bpy.context.view_layer.active_layer_collection.collection.objects.link(leaf_obj)
+
+    # Parent the leaves to the tree object
+    leaf_obj.parent = obj_new
+
 def segmentIntoTrunkAndBranch(tree, obj_new, radii):
     top = find_top_of_trunk(tree.branchpoints)
             
@@ -456,7 +539,8 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
         
 
     trunk_node_positions = [trunk_node.v for trunk_node in trunk_nodes]
-    branch_node_positions = [bp.v for bp in tree.branchpoints if bp not in trunk_nodes]
+    branch_node_positions = [bp.v for bp in tree.branchpoints if bp not in trunk_nodes and bp.apex is not None]
+    leave_nodes = [bp for bp in tree.branchpoints if bp not in trunk_nodes and bp.apex is None]
     branch_node_indices = [i for i in range(len(tree.branchpoints)) if i not in trunk_indices]
 
     trunk_material = create_material("TrunkMaterial", (0.77, 0.64, 0.52, 1)) # light brown
@@ -469,14 +553,12 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
     depsgraph = bpy.context.evaluated_depsgraph_get()
     evaluated_obj = obj_new.evaluated_get(depsgraph)
     # final_mesh = evaluated_obj.to_mesh()
-    final_mesh = bpy.data.meshes.new_from_object(evaluated_obj)
-    obj_processed = bpy.data.objects.new('Tree_Processed', final_mesh)
-    bpy.context.view_layer.active_layer_collection.collection.objects.link(obj_processed)
+    bare_tree = bpy.data.meshes.new_from_object(evaluated_obj)
     # obj_new.data = final_mesh
 
     trunk_node_kd_tree = KDTree(trunk_node_positions)
     branch_node_kd_tree = KDTree(branch_node_positions)
-    for poly in final_mesh.polygons:
+    for poly in bare_tree.polygons:
         position = poly.center
         trunk_node_distance, trunk_node_index = trunk_node_kd_tree.query(position, 1)
         branch_node_distance, branch_node_index = branch_node_kd_tree.query(position, 1)
@@ -488,7 +570,12 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
         
     assign_vertices_to_group(obj_new, "TrunkGroup", trunk_vertex_indices)
     assign_vertices_to_group(obj_new, "BranchGroup", branch_vertex_indices)
-
+    
+    obj_processed = bpy.data.objects.new('Tree_Processed', bare_tree)
+    bpy.context.view_layer.active_layer_collection.collection.objects.link(obj_processed)
+    
+    add_leaves_to_tree(tree, leave_nodes, obj_processed)
+    
     obj_processed.data.update()
     obj_new.data.update()
     
