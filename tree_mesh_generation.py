@@ -298,6 +298,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
     objectParticles='None',
     emitterscale=0.1,
     timeperf=True,
+    addLeaves=False,
     prune=0):
     
     timings = Timer()
@@ -503,7 +504,7 @@ def add_leaves_to_tree(tree, leave_nodes, obj_new):
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
 
     # Load image
-    image_path = "C:/Users/anton/Documents/Uni/Spatial Data I/Procedual_Blender_Forest_Simulator/textures/chestnut_summer_color.png"  # Replace with your image path
+    image_path = "C:/Users/anton/Documents/Uni/Spatial Data Analysis/Procedual_Blender_Forest_Simulator/textures/chestnut_summer_color.png"  # Replace with your image path
     image = bpy.data.images.load(image_path)
 
     # Create texture node
@@ -574,7 +575,7 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
     obj_processed = bpy.data.objects.new('Tree_Processed', bare_tree)
     bpy.context.view_layer.active_layer_collection.collection.objects.link(obj_processed)
     
-    add_leaves_to_tree(tree, leave_nodes, obj_processed)
+    # add_leaves_to_tree(tree, leave_nodes, obj_processed)
     
     obj_processed.data.update()
     obj_new.data.update()
@@ -659,7 +660,8 @@ class SCATree():
               timePerformance=False,
               apicalcontrol=0.0,
               apicalcontrolfalloff=1.0,
-              apicalcontroltiming=10
+              apicalcontroltiming=10,
+              context=None,
               ):
     self.internodeLength = interNodeLength
     self.killDistance = killDistance
@@ -687,8 +689,9 @@ class SCATree():
     self.maxTime = maxTime
     self.bLeaf = bLeaf
     self.addLeaves = addLeaves
+    self.addLeaves = True
     
-    # self.leafParticles = availableParticleSettings(self, context)[0]
+    self.leafParticles = availableParticleSettings(self, context)[0]
     # self.objectParticles = availableParticleSettings(self, context)[0]
     self.emitterScale = emitterScale
     # self.barMaterial = availableBarkMaterials(self, context)[0]
@@ -764,7 +767,7 @@ class SCATree():
       obj_new=createGeometry(sca,self.power,self.scale,
           self.noModifiers, self.skinMethod, self.subSurface,
           self.bLeaf, 
-        #   self.leafParticles if self.addLeaves else 'None', 
+          self.leafParticles if self.addLeaves else 'None', 
         #   self.objectParticles if self.addLeaves else 'None',
             'None',
             'None',

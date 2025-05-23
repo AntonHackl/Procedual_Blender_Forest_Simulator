@@ -33,7 +33,7 @@ class TreeConfiguration(bpy.types.PropertyGroup):
       name="Tree Configuration File", 
       description="Path to the file", 
       subtype='FILE_PATH',
-      default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data I\\tree_configs\\sphere_tree.json"  
+      default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data Analysis\\tree_configs\\sphere_tree.json"  
     )
     weight: bpy.props.FloatProperty(
       name="Weight",
@@ -51,7 +51,7 @@ class ForestGenerator(bpy.types.Operator):
     name="Surface", 
     description="Path to the file", 
     subtype='FILE_PATH',
-    default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data I\\surface.csv"
+    default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data Analysis\\surface.csv"
   )
   treeConfigurationCount: bpy.props.IntProperty(
     name="Number of tree configurations",
@@ -219,7 +219,8 @@ class ForestGenerator(bpy.types.Operator):
         noModifiers=False,
         subSurface=True,
         randomSeed=random.randint(0, 1_000_000),
-        **tree_mesh_configurations[tree_configuration_indices[i]]
+        context=context,
+        **tree_mesh_configurations[tree_configuration_indices[i]],
       )
       
       sca_tree_mesh = sca_tree.create_tree(context)

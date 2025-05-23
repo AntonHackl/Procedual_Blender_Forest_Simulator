@@ -243,7 +243,7 @@ class SCA:
             if self.apicalcontrol < 0 :
                 self.apicalcontrol = 0.0
 
-    self.nodeRelocation()
+    # self.nodeRelocation()
 
     self.branchpoints=[]
     for bi in range(len(self.bp)//3):
