@@ -407,11 +407,15 @@ def createGeometry(tree, power=0.5, scale=0.01,
       
   timings.add('modifiers')
   # create a particles based leaf emitter (if we have leaves and/or objects)
+  # bpy.context.scene.objects.active = obj_new
+  obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, (np.array(radii)**power)*scale)
+  bpy.ops.object.shade_smooth()
+  
   if leafParticles != 'None' or objectParticles != 'None':
     mesh, verts, faces, radii = createLeaves2(tree, roots, Vector((0,0,0)), emitterscale, 0.9)
     obj_leaves2 = bpy.data.objects.new(mesh.name, mesh)
     base = bpy.context.collection.objects.link(obj_leaves2)
-    obj_leaves2.parent = obj_new
+    obj_leaves2.parent = obj_processed
     # bpy.context.scene.objects.active = obj_leaves2
     bpy.context.view_layer.objects.active = obj_leaves2
     obj_leaves2.select_set(True)
@@ -437,10 +441,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
       obj_leaves2.particle_systems.active.settings.count = len(faces)
       obj_leaves2.particle_systems.active.name = 'Objects'
       obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
-    
-  # bpy.context.scene.objects.active = obj_new
-  obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, (np.array(radii)**power)*scale)
-  bpy.ops.object.shade_smooth()
   
   timings.add('leaves')
   
@@ -451,6 +451,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
   
   return obj_processed
 
+# This method is currently not being used.
 def add_leaves_to_tree(tree, leave_nodes, obj_new):
   # Create a new mesh for the leaves
   leaf_mesh = bpy.data.meshes.new("Leaves")
@@ -550,8 +551,8 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
   leave_nodes = [bp for bp in tree.branchpoints if bp not in trunk_nodes and bp.apex is None]
   branch_node_indices = [i for i in range(len(tree.branchpoints)) if i not in trunk_indices]
 
-  trunk_material = create_material("TrunkMaterial", (0.77, 0.64, 0.52, 1)) # light brown
-  branch_material = create_material("BranchMaterial", (0.36, 0.25, 0.20, 1)) # dark brown
+  trunk_material = create_material("TrunkMaterial", (0.77, 0.64, 0.52, 1), 0) # light brown
+  branch_material = create_material("BranchMaterial", (0.36, 0.25, 0.20, 1), 1) # dark brown
   assign_material(obj_new, trunk_material)
   assign_material(obj_new, branch_material)
   trunk_vertex_indices = []
@@ -611,11 +612,16 @@ def find_top_of_trunk(branchpoints):
       queue.extend(node_to_children.get(current_index, []))
   return candidate
 
-def create_material(name, color):
+def create_material(name, color, pass_index):
   mat = bpy.data.materials.get(name)
   if mat is None:
     mat = bpy.data.materials.new(name=name)
     mat.diffuse_color = color
+    mat.pass_index = pass_index
+  else:
+    mat.diffuse_color = color
+    mat.pass_index = pass_index
+    
   return mat
 
 def assign_material(obj, mat):
