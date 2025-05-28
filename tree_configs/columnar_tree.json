@@ -1,7 +1,7 @@
 {
   "numberOfEndpoints": 800,
   "interNodeLength": 0.25,
-  "influence": 5,
+  "influenceRange": 5,
   "stem_height": 6,
   "stem_diameter": 1,
   "crown_type": "columnar",
@@ -9,7 +9,7 @@
   "crown_height": 8,
   "crown_offset": 3,
   "leaf_density": [
-    0.4,
-    0.8
+    0.3,
+    0.5
   ]
 }

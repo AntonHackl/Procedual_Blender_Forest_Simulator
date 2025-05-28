@@ -296,7 +296,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
   nomodifiers=True, skinmethod='NATIVE', subsurface=False,
   bleaf=4.0,
   leafParticles='None',
-  leaf_range=[1.0, 1.0],
+  leaf_density=[1.0, 1.0],
   particlesettings=None,
   objectParticles='None',
   emitterscale=0.1,
@@ -432,7 +432,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
       bpy.ops.object.particle_system_add()
       obj_leaves2.particle_systems.active.settings = particlesettings[leafParticles]
       # obj_leaves2.particle_systems.active.settings.count = len(faces)
-      obj_leaves2.particle_systems.active.settings.count = int(len(faces) * random.uniform(leaf_range[0], leaf_range[1]))
+      obj_leaves2.particle_systems.active.settings.count = int(len(faces) * random.uniform(leaf_density[0], leaf_density[1]))
       obj_leaves2.particle_systems.active.name = 'Leaves'
       obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
     if objectParticles != 'None':
@@ -659,7 +659,7 @@ class SCATree():
               maxIterations=40,
               pruningGen=0,
               numberOfEndpoints=100,
-              leaf_range=[1.0, 1.0],
+              leaf_density=[1.0, 1.0],
               newEndPointsPer1000=0,
               maxTime=0.0,
               bLeaf=4.0,
@@ -697,11 +697,11 @@ class SCATree():
     self.maxIterations = maxIterations
     self.pruningGen = pruningGen
     self.numberOfEndpoints = numberOfEndpoints
-    if len(leaf_range) != 2:
-      raise ValueError("leaf_range must be a list of two floats, e.g. [1.0, 1.0]")
-    leaf_range = [min(leaf_range), max(leaf_range)]
-    leaf_range = [max(leaf_range[0], 0.0), min(leaf_range[1], 1.0)]
-    self.leaf_range = leaf_range
+    if len(leaf_density) != 2:
+      raise ValueError("leaf_density must be a list of two floats, e.g. [1.0, 1.0]")
+    leaf_density = [min(leaf_density), max(leaf_density)]
+    leaf_density = [max(leaf_density[0], 0.0), min(leaf_density[1], 1.0)]
+    self.leaf_density = leaf_density
     self.newEndPointsPer1000 = newEndPointsPer1000
     self.maxTime = maxTime
     self.bLeaf = bLeaf
@@ -801,7 +801,7 @@ class SCATree():
       #   self.leafParticles if self.addLeaves else 'None', 
       # list(particlesettings.keys())[2],
       self.leafParticles,
-      self.leaf_range,
+      self.leaf_density,
       particlesettings if self.addLeaves else 'None',
       #   self.objectParticles if self.addLeaves else 'None',
       'None',

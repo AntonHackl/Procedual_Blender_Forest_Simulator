@@ -33,7 +33,7 @@ class TreeConfiguration(bpy.types.PropertyGroup):
       name="Tree Configuration File", 
       description="Path to the file", 
       subtype='FILE_PATH',
-      default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data Analysis\\tree_configs\\sphere_tree.json"  
+      default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data Analysis\\Procedual_Blender_Forest_Simulator\\tree_configs\\sphere_tree.json"  
     )
     weight: bpy.props.FloatProperty(
       name="Weight",

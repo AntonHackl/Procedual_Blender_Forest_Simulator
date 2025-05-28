@@ -8,8 +8,8 @@
   "crown_height": 9,
   "crown_offset": 5,
   "scale": 0.04,
-  "leaf_range": [
-    0.9,
-    1.0
+  "leaf_density": [
+    0.4,
+    0.5
   ]
 }
