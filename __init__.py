@@ -258,7 +258,7 @@ class ForestGenerator(bpy.types.Operator):
     return mat
             
 def menu_func(self, context):
-  self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest Fixed",
+  self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest",
                                           icon='PLUGIN').updateForest = False
 
 def register():
