@@ -7,5 +7,9 @@
   "crown_type": "columnar",
   "crown_width": 5,
   "crown_height": 8,
-  "crown_offset": 3
+  "crown_offset": 3,
+  "leaf_density": [
+    0.4,
+    0.8
+  ]
 }

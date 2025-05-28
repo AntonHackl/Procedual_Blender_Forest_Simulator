@@ -48,7 +48,7 @@ from mathutils import Vector,Euler,Matrix,Quaternion
 from scipy.spatial import KDTree
 import bmesh
 
-from .scanew import SCA, Branchpoint # the core class that implements the space colonization algorithm and the definition of a segment
+from .sca import SCA, Branchpoint # the core class that implements the space colonization algorithm and the definition of a segment
 from .timer import Timer
 from .utils import load_materials_from_bundled_lib, load_particlesettings_from_bundled_lib, get_vertex_group
 # from .voxel_grid import VoxelGrid

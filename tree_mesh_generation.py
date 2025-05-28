@@ -36,8 +36,7 @@ bl_info = {
   "category": "Add Mesh"}
 
 from time import time
-from random import random,gauss
-import random as ra
+import random
 from functools import partial
 from math import radians, sin,cos
 import numpy as np
@@ -48,7 +47,7 @@ from mathutils import Vector,Euler,Matrix,Quaternion
 from scipy.spatial import KDTree
 import bmesh
 
-from .scanew import SCA, Branchpoint # the core class that implements the space colonization algorithm and the definition of a segment
+from .sca import SCA, Branchpoint # the core class that implements the space colonization algorithm and the definition of a segment
 from .timer import Timer
 from .utils import load_materials_from_bundled_lib, load_particlesettings_from_bundled_lib, get_vertex_group
 from .voxel_grid import VoxelGrid
@@ -83,9 +82,9 @@ def ellipsoid(r=5,rz=5,p=Vector((0,0,8)),taper=0):
   z2=rz*rz
   if rz>r : r = rz
   while True:
-    x = (random()*2-1)*r
-    y = (random()*2-1)*r
-    z = (random()*2-1)*r
+    x = (random.random()*2-1)*r
+    y = (random.random()*2-1)*r
+    z = (random.random()*2-1)*r
     f = (z+r)/(2*r)
     f = 1 + f*taper if taper>=0 else (1-f)*-taper
     if f*x*x/r2+f*y*y/r2+z*z/z2 <= 1:
@@ -108,9 +107,9 @@ def pointInsideMesh(pointrelativetocursor,ob):
   
 def ellipsoid2(rxy=5,rz=5,p=Vector((0,0,8)),surfacebias=1,topbias=1):
   while True:
-    phi = 6.283*random()
-    theta = 3.1415*(random()-0.5)
-    r = random()**((1.0/surfacebias)/2)
+    phi = 6.283*random.random()
+    theta = 3.1415*(random.random()-0.5)
+    r = random.random()**((1.0/surfacebias)/2)
     x = r*rxy*cos(theta)*cos(phi)
     y = r*rxy*cos(theta)*sin(phi)
     st=sin(theta)
@@ -178,7 +177,7 @@ def groupdistribution(crowngroup,shadowgroup=None,shadowdensity=0.5, seed=0,size
       if not inshadow:
         outsideshadow = True
       else:
-        outsideshadow = random() > shadowdensity  # if inside the group we might still generate a marker if the density is low
+        outsideshadow = random.random() > shadowdensity  # if inside the group we might still generate a marker if the density is low
     # if shadowgroup overlaps all or a significant part of the crowngroup
     # no markers will be yielded and we would be in an endless loop.
     # so if we yield too few correct markers we start yielding them anyway.
@@ -255,7 +254,7 @@ def simpleskin(bp, verts, faces, radii, power, scale, p):
     _simpleskin(bp.shoot, loop, verts, faces, radii, power, scale, p)
 
 #TODO: Make it better than just random
-def leafnode(bp, verts, faces, radii, p1, p2, scale=0.0001, random_threshold=0.0):
+def leafnode(bp, verts, faces, radii, p1, p2, scale=0.0001):
   loop1 = basictri(bp, verts, radii, 0.0, scale, p1)
   loop2 = basictri(bp, verts, radii, 0.0, scale, p2)
   # if random() > random_threshold:
@@ -264,16 +263,16 @@ def leafnode(bp, verts, faces, radii, p1, p2, scale=0.0001, random_threshold=0.0
   for i in range(3):
     faces.append((loop1[i],loop1[(i+1)%3],loop2[(i+1)%3],loop2[i]))
   if bp.apex:
-    leafnode(bp.apex, verts, faces, radii, p1, p2, scale, random_threshold)
+    leafnode(bp.apex, verts, faces, radii, p1, p2, scale)
   if bp.shoot:
-    leafnode(bp.shoot, verts, faces, radii, p1, p2, scale, random_threshold)
+    leafnode(bp.shoot, verts, faces, radii, p1, p2, scale)
 
-def createLeaves2(tree, roots, p, scale, random_threshold=0.0):
+def createLeaves2(tree, roots, p, scale):
   verts = []
   faces = []
   radii = []
   for r in roots:
-    leafnode(r, verts, faces, radii, p, p++Vector((0,0, scale)), scale, random_threshold)
+    leafnode(r, verts, faces, radii, p, p++Vector((0,0, scale)), scale)
   mesh = bpy.data.meshes.new('LeafEmitter')
   mesh.from_pydata(verts, [], faces)
   mesh.update(calc_edges=True)
@@ -297,6 +296,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
   nomodifiers=True, skinmethod='NATIVE', subsurface=False,
   bleaf=4.0,
   leafParticles='None',
+  leaf_range=[1.0, 1.0],
   particlesettings=None,
   objectParticles='None',
   emitterscale=0.1,
@@ -412,7 +412,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
   bpy.ops.object.shade_smooth()
   
   if leafParticles != 'None' or objectParticles != 'None':
-    mesh, verts, faces, radii = createLeaves2(tree, roots, Vector((0,0,0)), emitterscale, 0.9)
+    mesh, verts, faces, radii = createLeaves2(tree, roots, Vector((0,0,0)), emitterscale)
     obj_leaves2 = bpy.data.objects.new(mesh.name, mesh)
     base = bpy.context.collection.objects.link(obj_leaves2)
     obj_leaves2.parent = obj_processed
@@ -432,7 +432,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
       bpy.ops.object.particle_system_add()
       obj_leaves2.particle_systems.active.settings = particlesettings[leafParticles]
       # obj_leaves2.particle_systems.active.settings.count = len(faces)
-      obj_leaves2.particle_systems.active.settings.count = 500
+      obj_leaves2.particle_systems.active.settings.count = int(len(faces) * random.uniform(leaf_range[0], leaf_range[1]))
       obj_leaves2.particle_systems.active.name = 'Leaves'
       obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
     if objectParticles != 'None':
@@ -447,7 +447,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
   if timeperf:
     print(timings)
     
-  bpy.data.objects.remove(obj_new, do_unlink=True)
+  # bpy.data.objects.remove(obj_new, do_unlink=True)
   
   return obj_processed
 
@@ -557,16 +557,18 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
   assign_material(obj_new, branch_material)
   trunk_vertex_indices = []
   branch_vertex_indices = []
-  # bpy.ops.object.modifier_apply(modifier="Skin")
-  depsgraph = bpy.context.evaluated_depsgraph_get()
-  evaluated_obj = obj_new.evaluated_get(depsgraph)
-  # final_mesh = evaluated_obj.to_mesh()
-  bare_tree = bpy.data.meshes.new_from_object(evaluated_obj)
+  
+  # maybe unnecessary
+  bpy.context.view_layer.objects.active = obj_new
+  obj_new.select_set(True)
+  
+  bpy.ops.object.modifier_apply(modifier="Subdivision")
+  
   # obj_new.data = final_mesh
 
   trunk_node_kd_tree = KDTree(trunk_node_positions)
   branch_node_kd_tree = KDTree(branch_node_positions)
-  for poly in bare_tree.polygons:
+  for poly in obj_new.data.polygons:
     position = poly.center
     trunk_node_distance, trunk_node_index = trunk_node_kd_tree.query(position, 1)
     branch_node_distance, branch_node_index = branch_node_kd_tree.query(position, 1)
@@ -579,15 +581,12 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
   assign_vertices_to_group(obj_new, "TrunkGroup", trunk_vertex_indices)
   assign_vertices_to_group(obj_new, "BranchGroup", branch_vertex_indices)
   
-  obj_processed = bpy.data.objects.new('Tree_Processed', bare_tree)
-  bpy.context.view_layer.active_layer_collection.collection.objects.link(obj_processed)
   
   # add_leaves_to_tree(tree, leave_nodes, obj_processed)
   
-  obj_processed.data.update()
   obj_new.data.update()
   
-  return obj_processed
+  return obj_new
 
 def create_inverse_graph(branchpoints):
   node_to_children = {}
@@ -660,6 +659,7 @@ class SCATree():
               maxIterations=40,
               pruningGen=0,
               numberOfEndpoints=100,
+              leaf_range=[1.0, 1.0],
               newEndPointsPer1000=0,
               maxTime=0.0,
               bLeaf=4.0,
@@ -697,6 +697,11 @@ class SCATree():
     self.maxIterations = maxIterations
     self.pruningGen = pruningGen
     self.numberOfEndpoints = numberOfEndpoints
+    if len(leaf_range) != 2:
+      raise ValueError("leaf_range must be a list of two floats, e.g. [1.0, 1.0]")
+    leaf_range = [min(leaf_range), max(leaf_range)]
+    leaf_range = [max(leaf_range[0], 0.0), min(leaf_range[1], 1.0)]
+    self.leaf_range = leaf_range
     self.newEndPointsPer1000 = newEndPointsPer1000
     self.maxTime = maxTime
     self.bLeaf = bLeaf
@@ -796,6 +801,7 @@ class SCATree():
       #   self.leafParticles if self.addLeaves else 'None', 
       # list(particlesettings.keys())[2],
       self.leafParticles,
+      self.leaf_range,
       particlesettings if self.addLeaves else 'None',
       #   self.objectParticles if self.addLeaves else 'None',
       'None',

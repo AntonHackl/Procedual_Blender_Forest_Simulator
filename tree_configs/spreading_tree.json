@@ -7,5 +7,9 @@
   "crown_width": 20,
   "crown_height": 15,
   "crown_offset": 5,
-  "scale": 0.02
+  "scale": 0.02,
+  "leaf_range": [
+    0.15,
+    0.3
+  ]
 }
