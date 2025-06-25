@@ -133,8 +133,8 @@ def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], configurati
     
     return random.choices(range(len(configuration_weights)), weights=configuration_weights, k=1)[0]
   
-  active_list: Tuple[Tuple[float, float], int] = []
-  points: Tuple[Tuple[float, float], int] = []
+  active_list: List[Tuple[Tuple[float, float], int]] = []
+  points: List[Tuple[Tuple[float, float], int]] = []
 
   if surface == []:
     return []

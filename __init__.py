@@ -129,7 +129,7 @@ class ForestGenerator(bpy.types.Operator):
     :rtype: Set[str, str]
     """
     
-    random.seed(250)
+    random.seed(random.randint(0, 1_000_000))
     self.update_tree_configurations()
     if not self.updateForest:
       return {'FINISHED'}

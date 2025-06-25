@@ -345,7 +345,7 @@ class VoxelGrid:
       other_tree = self.trees[pair[1]]
       self.resolve_collision(tree, other_tree)
         
-  def resolve_collision(self, tree1: Tuple[int, int, int, np.ndarray], tree2: Tuple[int, int, int, np.ndarray]):
+  def resolve_collision(self, tree1: Tuple[int, int, int, int, np.ndarray], tree2: Tuple[int, int, int, int, np.ndarray]):
     """
     Resolves the collision between two voxel grids representing trees.
     In this algorithm, some cells are marked as collision cells with specific values.
