@@ -67,7 +67,7 @@ def sphere(r,p):
             
 class SCA:
 
-  def __init__(self,NENDPOINTS = 100,d = 0.3,NBP = 2000, KILLDIST = 5, INFLUENCE = 15, SEED=42, volume: Union[Callable[[int], Vector], None] = None, TROPISM=0.0, exclude=lambda p: False,
+  def __init__(self,NENDPOINTS = 100,d = 0.3,NBP = 2000, KILLDIST = 5, INFLUENCE = 15, SEED=42, volume: Union[Callable[[], Vector], None] = None, TROPISM=0.0, exclude=lambda p: False,
         startingpoints=[], apicalcontrol=0, apicalcontrolfalloff=1, apicaltiming=0):
     if volume is None:
        raise ValueError("Volume function is required")
@@ -104,7 +104,8 @@ class SCA:
     self.endpoints = []
 
     endpoints = []
-    endpoints.extend(self.volumepoint(n_points=NENDPOINTS))
+    for _ in range(NENDPOINTS):
+      endpoints.append(next(self.volumepoint()))
     for ep in endpoints:
         self.addEndPoint(ep)
 
@@ -127,10 +128,6 @@ class SCA:
     self.bpa.append(0)
     self.bpc[pi]+=1
     bi = len(self.bp)//3-1
-    # if the new branchpoint is closer than any other branchpoint it will make that endpoint point to itself
-    # if the new branchpoint is within kill distance of an endpoint it will mark it as dead
-    # if not in the influence range it will mark the the endpoint as out of range but still store the distance
-    
 
     for epi,(ep,epd,epb) in enumerate(zip(self.ep,self.epd, self.epb)):
       if epb != -1: # not a dead endpoint

@@ -1,5 +1,4 @@
 import sys
-
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python311\\site-packages")
 
 import time
@@ -11,10 +10,11 @@ from scipy.spatial import KDTree
 import numpy as np
 
 import bpy
-from mathutils import Vector,Euler,Matrix,Quaternion
 from .voxel_grid import VoxelGrid
 from .tree_mesh_generation import SCATree
 import bmesh
+
+from .poisson_disk_sampling import poisson_disk_sampling_on_surface
 
 bl_info = {
   "name": "Forest Generator",
@@ -63,10 +63,6 @@ class ForestGenerator(bpy.types.Operator):
   updateForest: bpy.props.BoolProperty(name="Generate Forest", default=False)
 
   voxel_model_related_configuration_fields = {
-    "crown_width",
-    "crown_height",
-    "crown_offset",
-    "crown_type",
     "stem_height",
     "stem_diameter",
   }
@@ -159,13 +155,9 @@ class ForestGenerator(bpy.types.Operator):
         if k not in self.voxel_model_related_configuration_fields}
       for tree_configuration in tree_configurations
     ]
-    
-    voxel_grid = VoxelGrid()
-    voxel_grid.generate_forest(tree_voxel_configurations, configuration_weights, surface_data)
-    generation_results = [voxel_grid.greedy_meshing(i) for i in range(len(voxel_grid.trees))]
-    tree_configuration_indices = [generation_result[0] for generation_result in generation_results]
-    tree_meshes = [generation_result[1] for generation_result in generation_results]
-    tree_mesh_locations = KDTree([tree_mesh.location for tree_mesh in tree_meshes])
+
+    crown_widths = [tree_configuration["crown_width"] for tree_configuration in tree_mesh_configurations]
+    tree_positions = poisson_disk_sampling_on_surface(surface_data, configuration_weights, crown_widths)
     
     rest_collection = bpy.data.collections.get("Rest")
     if not rest_collection:
@@ -181,69 +173,35 @@ class ForestGenerator(bpy.types.Operator):
     if not exlusion_collection:
       exlusion_collection = bpy.data.collections.new("Exclusion")
       bpy.context.scene.collection.children.link(exlusion_collection)
-
-    for i, tree_mesh in enumerate(tree_meshes):
-      material = self.create_random_material(f"Material_{i}")
-      if tree_mesh.data.materials:
-        tree_mesh.data.materials[0] = material
-      else:
-        tree_mesh.data.materials.append(material)
-      rest_collection.objects.link(tree_mesh)
       
-    max_crown_width = max([tree_configuration["crown_width"] for tree_configuration in tree_voxel_configurations]) / 2
     original_cursor_location = bpy.context.scene.cursor.location.copy()
-    for i, tree_mesh in enumerate(tree_meshes):
+    for i, tree_position in enumerate(tree_positions):
       start_time = time.time()
-      bpy.context.view_layer.update()
-      rest_collection.objects.unlink(tree_mesh)
-      crown_collection.objects.link(tree_mesh)
-      bpy.context.view_layer.update()
       
-      max_range = max_crown_width + tree_voxel_configurations[tree_configuration_indices[i]]["crown_width"] / 2
-      
-      in_range_trees = tree_mesh_locations.query_ball_point(tree_mesh.location, max_range)
-      
-      for tree_index in in_range_trees:
-        if tree_index == i:
-          continue
-        rest_collection.objects.unlink(tree_meshes[tree_index])
-        exlusion_collection.objects.link(tree_meshes[tree_index])
-      
-      tree_location = tree_mesh.location.copy()
+      tree_location = (tree_position[0][0], tree_position[0][1], 0)
       bpy.context.scene.cursor.location = tree_location
       bpy.context.view_layer.update()
       
       sca_tree = SCATree(
-        useGroups=True,
-        crownGroup="Crown",
-        exclusionGroup="Exclusion",
         noModifiers=False,
         subSurface=True,
         randomSeed=random.randint(0, 1_000_000),
         context=context,
         class_id=i,
-        **tree_mesh_configurations[tree_configuration_indices[i]],
+        **tree_mesh_configurations[tree_position[1]],
       )
       
       sca_tree_mesh = sca_tree.create_tree(context)
       
-      crown_collection.objects.unlink(tree_mesh)
-      rest_collection.objects.link(tree_mesh)
       bpy.context.view_layer.update()
       
       if sca_tree_mesh == None:
         continue
       sca_tree_mesh.location = bpy.context.scene.cursor.location.copy()
       
-      for tree_index in in_range_trees:
-        if tree_index == i:
-          continue
-        exlusion_collection.objects.unlink(tree_meshes[tree_index])
-        rest_collection.objects.link(tree_meshes[tree_index])
-      
       end_time = time.time()
       elapsed_time = end_time - start_time
-      print(f"{i+1} out of {len(tree_meshes)} trees generated at {tree_mesh.location} with configuration index {tree_configuration_indices[i]} in {elapsed_time:.2f} seconds")
+      print(f"{i+1} out of {len(tree_positions)} trees generated at {tree_position[0]} with configuration index {tree_position[1]} in {elapsed_time:.2f} seconds")
       
     self.updateForest = False
     bpy.context.scene.cursor.location = original_cursor_location

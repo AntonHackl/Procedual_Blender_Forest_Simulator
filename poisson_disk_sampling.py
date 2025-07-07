@@ -4,7 +4,7 @@ import random
 import triangle
 from shapely.geometry import Polygon, Point
 
-def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], configuration_weights, crown_widths, k=30):
+def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], configuration_weights, crown_widths, k=30) -> List[Tuple[Tuple[float, float], int]]:
   """
   Generates a set of points on a surface using Poisson disk sampling, ensuring that points are not too close to each other
   based on a distance threshold influenced by crown widths and configuration weights.
@@ -162,4 +162,4 @@ def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], configurati
     if not found:
       active_list.pop(idx)
 
-  return points
+  return points[:1]

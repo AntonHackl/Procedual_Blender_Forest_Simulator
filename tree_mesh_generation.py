@@ -109,25 +109,57 @@ def pointInsideMesh(pointrelativetocursor,ob):
   
 def ellipsoid2(rxy=5,rz=5,p=Vector((0,0,8)),surfacebias=1,topbias=1):
   while True:
-    phi = 6.283*random.random()
-    theta = 3.1415*(random.random()-0.5)
-    r = random.random()**((1.0/surfacebias)/2)
+    phi = 2*np.pi*random.random()
+    theta = np.pi*(random.random()-0.5)
+    r = random.random()**((1.0/surfacebias))
     x = r*rxy*cos(theta)*cos(phi)
     y = r*rxy*cos(theta)*sin(phi)
     st=sin(theta)
     st = (((st+1)/2)**(1.0/topbias))*2-1
     z = r*rz*st
-    #print(">>>%.2f %.2f %.2f "%(x,y,z))
-    m = p+Vector((x,y,z))
-# undocumented feature: bombs if any selected object is not a mesh. Use crown and shadow/exclusion groups instead
-#        reject = False
-#        for ob in bpy.context.selected_objects:
-#            # probably we should check if each object is a mesh
-#            if pointInsideMesh(m,ob) :
-#                reject = True
-#                break
-#        if not reject:
+    m = p+Vector((x,y,z+rz))
     yield m
+
+def cylinder_points(radius=1, height=2, center=Vector((0,0,0)), surfacebias=1, topbias=1):
+    """
+    Generate random points inside a cylinder with surface and top bias.
+    - radius: cylinder radius
+    - height: cylinder height (along Z)
+    - center: center of the cylinder (middle of height)
+    - surfacebias: >1 = more points near surface, <1 = more points near center
+    - topbias: >1 = more points near top/bottom, <1 = more points near middle Z
+    """
+    pi = np.pi
+    while True:
+        theta = random.uniform(0, 2*pi)
+        r = radius * (random.random() ** (1.0/surfacebias))
+        z_frac = (random.random() ** (1.0/topbias))
+        z = (z_frac - 0.5) * height  # Range: -height/2 to +height/2
+        x = r * cos(theta)
+        y = r * sin(theta)
+        yield center + Vector((x, y, z+height/2))
+
+def hemisphere_points(radius=1, center=Vector((0,0,0)), surfacebias=1, topbias=1, direction='up'):
+    """
+    Generate random points inside a hemisphere with surface and top bias.
+    - radius: hemisphere radius
+    - center: center of the base of the hemisphere
+    - surfacebias: >1 = more points near surface, <1 = more points near center
+    - topbias: >1 = more points near top, <1 = more points near base
+    - direction: 'up' (default) or 'down' for hemisphere orientation
+    """
+    pi = np.pi
+    while True:
+        phi = random.uniform(0, 2*pi)
+        # theta: 0 (top) to pi/2 (equator/base)
+        theta = (random.random() ** (1.0/topbias)) * (pi/2)
+        r = radius * (random.random() ** (1.0/surfacebias))
+        x = r * sin(theta) * cos(phi)
+        y = r * sin(theta) * sin(phi)
+        z = r * cos(theta)
+        if direction == 'down':
+            z = -z
+        yield center + Vector((x, y, z))
 
 def halton3D(index):
   """
@@ -375,14 +407,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
   # bpy.context.scene.objects.active = obj_new
   bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
   
-  # add a leaves vertex group
-  # leavesgroup = get_vertex_group(bpy.context, 'Leaves')
-  
-  # maxr = max(radii) if len(radii)>0 else 0.03 # pruning might have been so aggressive that there are no radii (NB. python 3.3 does not know the default keyword for the max() fie
-  # if maxr<=0 : maxr=1.0
-  # maxr=float(maxr)
-  # for v,r in zip(mesh.vertices,radii):
-  #   leavesgroup.add([v.index], (1.0-r/maxr)**bleaf, 'REPLACE')
   timings.add('createmesh')
   
   # add a subsurf modifier to smooth the branches 
@@ -424,8 +448,8 @@ def createGeometry(tree, power=0.5, scale=0.01,
   obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, (np.array(radii)**power)*scale)
   bpy.ops.object.shade_smooth()
 
-  obj_processed.class_id = class_id
-  obj_processed.name = f"Tree_{obj_processed.class_id}"
+  obj_processed["class_id"] = class_id
+  obj_processed.name = f"Tree_{obj_processed['class_id']}"
   
   if leafParticles != 'None' or objectParticles != 'None':
     mesh, verts, faces, radii = createLeaves2(tree, roots, Vector((0,0,0)), emitterscale)
@@ -436,7 +460,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
     bpy.context.view_layer.objects.active = obj_leaves2
     obj_leaves2.select_set(True)
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-    # add a LeafDensity vertex group to the LeafEmitter object
     leavesgroup = get_vertex_group(bpy.context, 'LeafDensity')
     maxr = max(radii)
     if maxr<=0 : maxr=1.0
@@ -446,11 +469,11 @@ def createGeometry(tree, power=0.5, scale=0.01,
 
     if leafParticles != 'None':
       bpy.ops.object.particle_system_add()
-      obj_leaves2.class_id = class_id
-      obj_leaves2.name = f"Leaves_{obj_leaves2.class_id}"
+      obj_leaves2["class_id"] = class_id
+      obj_leaves2.name = f"Leaves_{obj_leaves2['class_id']}"
       obj_leaves2.particle_systems.active.settings = particlesettings[leafParticles]
       # obj_leaves2.particle_systems.active.settings.count = len(faces)
-      obj_leaves2.particle_systems.active.settings.count = int(len(faces) * random.uniform(leaf_density[0], leaf_density[1]))
+      obj_leaves2.particle_systems.active.settings.count = int(len(faces) * random.uniform(leaf_density[0], leaf_density[1])) * 0
       obj_leaves2.particle_systems.active.name = 'Leaves'
       obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
       
@@ -461,8 +484,8 @@ def createGeometry(tree, power=0.5, scale=0.01,
       for leaf_idx, obj in enumerate(bpy.context.selected_objects):
         if obj != obj_leaves2 and obj != obj_processed:
           
-          obj.class_id = class_id
-          obj.name = f"Leaf_{obj.class_id}_{leaf_idx}"
+          obj["class_id"] = class_id
+          obj.name = f"Leaf_{obj['class_id']}_{leaf_idx}"
           
           # Store world matrix before parenting
           world_matrix = obj.matrix_world.copy()
@@ -492,8 +515,8 @@ def createGeometry(tree, power=0.5, scale=0.01,
       for obj_idx, obj in enumerate(bpy.context.selected_objects):
         if obj != obj_leaves2 and obj != obj_processed:
           
-          obj.class_id = class_id
-          obj.name = f"Object_{obj.class_id}_{obj_idx}"
+          obj["class_id"] = class_id
+          obj.name = f"Object_{obj['class_id']}_{obj_idx}"
           
           # Store world matrix before parenting
           world_matrix = obj.matrix_world.copy()
@@ -649,9 +672,6 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
   assign_vertices_to_group(obj_new, "TrunkGroup", trunk_vertex_indices)
   assign_vertices_to_group(obj_new, "BranchGroup", branch_vertex_indices)
   
-  
-  # add_leaves_to_tree(tree, leave_nodes, obj_processed)
-  
   obj_new.data.update()
   
   return obj_new
@@ -715,15 +735,16 @@ class SCATree():
               useGroups=False,
               crownGroup='None',
               shadowGroup='None',
+              crown_type='ellipsoid',
+              crown_height=1.0,
+              crown_width=1.0,
+              crown_offset=0.0,
               shadowDensity=0.5,
               exclusionGroup='None',
               useTrunkGroup=False,
               trunkGroup=None,
-              crownSize=5.,
-              crownShape=1.,
-              crownOffset=3.,
-              surfaceBias=1.,
-              topBias=1.,
+              surface_bias=1.,
+              top_bias=1.,
               randomSeed=0,
               maxIterations=40,
               pruningGen=0,
@@ -758,15 +779,17 @@ class SCATree():
     self.exclusionGroup = exclusionGroup
     self.useTrunkGroup = useTrunkGroup
     self.trunkGroup = trunkGroup
-    self.crownSize = crownSize
-    self.crownShape = crownShape
-    self.crownOffset = crownOffset
-    self.surfaceBias = surfaceBias
-    self.topBias = topBias
+    self.crown_height = crown_height
+    self.crown_width = crown_width
+    self.crown_offset = crown_offset
+    self.surface_bias = surface_bias
+    self.top_bias = top_bias
     self.randomSeed = randomSeed
     self.maxIterations = maxIterations
     self.pruningGen = pruningGen
     self.numberOfEndpoints = numberOfEndpoints
+    self.crown_type = crown_type
+    
     if len(leaf_density) != 2:
       raise ValueError("leaf_density must be a list of two floats, e.g. [1.0, 1.0]")
     leaf_density = [min(leaf_density), max(leaf_density)]
@@ -823,14 +846,15 @@ class SCATree():
     except TypeError:
       pass
       
-
-    if self.useGroups:
-      size,minp = groupExtends(self.crownGroup)
-      # volumefie=partial(groupdistribution,self.crownGroup,self.shadowGroup,self.shadowDensity,self.randomSeed,size,minp-bpy.context.scene.cursor.location)
-      volumefie=partial(surface_based_groupdistribution,crowngroup=self.crownGroup,seed=self.randomSeed,size=size,pointrelativetocursor=minp-bpy.context.scene.cursor.location)
+    if self.crown_type == 'ellipsoid':
+      volumefie = partial(ellipsoid2, self.crown_width, self.crown_height, Vector((0, 0, self.crown_offset)), self.surface_bias, self.top_bias)
+    elif self.crown_type == 'columnar':
+      volumefie = partial(cylinder_points, self.crown_width, self.crown_height, Vector((0, 0, self.crown_offset)), self.surface_bias, self.top_bias)
+    elif self.crown_type == 'spreading':
+      volumefie = partial(hemisphere_points, self.crown_width, Vector((0, 0, self.crown_offset)), self.surface_bias, self.top_bias)
     else:
-      volumefie=partial(ellipsoid2,self.crownSize*self.crownShape,self.crownSize,Vector((0,0,self.crownSize+self.crownOffset)),self.surfaceBias,self.topBias)
-      
+      raise ValueError(f"Invalid crown type: {self.crown_type}")
+    
     startingpoints = []
     if self.useTrunkGroup:
       if self.trunkGroup in bpy.data.collections :
@@ -868,13 +892,10 @@ class SCATree():
     
     obj_new=createGeometry(sca,self.power,self.scale,
       self.noModifiers, self.skinMethod, self.subSurface,
-      self.bLeaf, 
-      #   self.leafParticles if self.addLeaves else 'None', 
-      # list(particlesettings.keys())[2],
+      self.bLeaf,
       self.leafParticles,
       self.leaf_density,
       particlesettings if self.addLeaves else 'None',
-      #   self.objectParticles if self.addLeaves else 'None',
       'None',
       self.emitterScale,
       self.timePerformance,

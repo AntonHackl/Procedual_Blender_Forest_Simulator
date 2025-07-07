@@ -7,6 +7,8 @@
   "crown_width": 20,
   "crown_height": 15,
   "crown_offset": 5,
+  "surface_bias": 1.5,
+  "top_bias": 5.0,
   "scale": 0.02,
   "leaf_density": [
     0.05,
