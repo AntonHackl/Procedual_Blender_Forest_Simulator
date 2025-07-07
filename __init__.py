@@ -193,6 +193,7 @@ class ForestGenerator(bpy.types.Operator):
     max_crown_width = max([tree_configuration["crown_width"] for tree_configuration in tree_voxel_configurations]) / 2
     original_cursor_location = bpy.context.scene.cursor.location.copy()
     for i, tree_mesh in enumerate(tree_meshes):
+      start_time = time.time()
       bpy.context.view_layer.update()
       rest_collection.objects.unlink(tree_mesh)
       crown_collection.objects.link(tree_mesh)
@@ -220,6 +221,7 @@ class ForestGenerator(bpy.types.Operator):
         subSurface=True,
         randomSeed=random.randint(0, 1_000_000),
         context=context,
+        class_id=i,
         **tree_mesh_configurations[tree_configuration_indices[i]],
       )
       
@@ -238,6 +240,10 @@ class ForestGenerator(bpy.types.Operator):
           continue
         exlusion_collection.objects.unlink(tree_meshes[tree_index])
         rest_collection.objects.link(tree_meshes[tree_index])
+      
+      end_time = time.time()
+      elapsed_time = end_time - start_time
+      print(f"{i+1} out of {len(tree_meshes)} trees generated at {tree_mesh.location} with configuration index {tree_configuration_indices[i]} in {elapsed_time:.2f} seconds")
       
     self.updateForest = False
     bpy.context.scene.cursor.location = original_cursor_location

@@ -21,6 +21,8 @@
 
 # for first time
 import sys
+
+from .endpoint_sampling import sample_mesh_group_surface_points
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
 
 bl_info = {
@@ -185,6 +187,16 @@ def groupdistribution(crowngroup,shadowgroup=None,shadowdensity=0.5, seed=0,size
     if (insidecrown and outsideshadow) or lowyieldrate:
       nyield+=1
       yield v
+
+def surface_based_groupdistribution(crowngroup, n_points=1000, seed=0, size=Vector((1,1,1)), pointrelativetocursor=Vector((0,0,0))):
+    """Generate points on mesh surfaces instead of checking if points are inside"""
+    
+    # Pre-generate surface points for crown group
+    crown_surface_points = []
+    if crowngroup in bpy.data.collections:
+        crown_surface_points = sample_mesh_group_surface_points(crowngroup, n_points, seed)
+    
+    return crown_surface_points
     
 def groupExtends(group):
   """
@@ -302,7 +314,8 @@ def createGeometry(tree, power=0.5, scale=0.01,
   emitterscale=0.1,
   timeperf=True,
   addLeaves=False,
-  prune=0):
+  prune=0,
+  class_id=0):
   
   if particlesettings is None and leafParticles != 'None':
     raise ValueError("No particlesettings available, cannot create leaf particles")
@@ -410,6 +423,9 @@ def createGeometry(tree, power=0.5, scale=0.01,
   # bpy.context.scene.objects.active = obj_new
   obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, (np.array(radii)**power)*scale)
   bpy.ops.object.shade_smooth()
+
+  obj_processed.class_id = class_id
+  obj_processed.name = f"Tree_{obj_processed.class_id}"
   
   if leafParticles != 'None' or objectParticles != 'None':
     mesh, verts, faces, radii = createLeaves2(tree, roots, Vector((0,0,0)), emitterscale)
@@ -430,17 +446,70 @@ def createGeometry(tree, power=0.5, scale=0.01,
 
     if leafParticles != 'None':
       bpy.ops.object.particle_system_add()
+      obj_leaves2.class_id = class_id
+      obj_leaves2.name = f"Leaves_{obj_leaves2.class_id}"
       obj_leaves2.particle_systems.active.settings = particlesettings[leafParticles]
       # obj_leaves2.particle_systems.active.settings.count = len(faces)
       obj_leaves2.particle_systems.active.settings.count = int(len(faces) * random.uniform(leaf_density[0], leaf_density[1]))
       obj_leaves2.particle_systems.active.name = 'Leaves'
       obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
+      
+      bpy.context.view_layer.objects.active = obj_leaves2
+      obj_leaves2.select_set(True)
+      bpy.ops.object.duplicates_make_real()
+      
+      for leaf_idx, obj in enumerate(bpy.context.selected_objects):
+        if obj != obj_leaves2 and obj != obj_processed:
+          
+          obj.class_id = class_id
+          obj.name = f"Leaf_{obj.class_id}_{leaf_idx}"
+          
+          # Store world matrix before parenting
+          world_matrix = obj.matrix_world.copy()
+          
+          # Set as child of the tree
+          obj.parent = obj_processed
+          
+          # Apply inverse parent transform to maintain world position
+          obj.matrix_world = world_matrix
+      
+      # Remove the particle system after making instances real
+      bpy.context.view_layer.objects.active = obj_leaves2
+      bpy.ops.object.particle_system_remove()
+      
     if objectParticles != 'None':
       bpy.ops.object.particle_system_add()
       obj_leaves2.particle_systems.active.settings = particlesettings[objectParticles]
       obj_leaves2.particle_systems.active.settings.count = len(faces)
       obj_leaves2.particle_systems.active.name = 'Objects'
       obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
+      
+      # Apply particle system to make instances real
+      bpy.context.view_layer.objects.active = obj_leaves2
+      obj_leaves2.select_set(True)
+      bpy.ops.object.duplicates_make_real()
+      
+      for obj_idx, obj in enumerate(bpy.context.selected_objects):
+        if obj != obj_leaves2 and obj != obj_processed:
+          
+          obj.class_id = class_id
+          obj.name = f"Object_{obj.class_id}_{obj_idx}"
+          
+          # Store world matrix before parenting
+          world_matrix = obj.matrix_world.copy()
+          
+          # Set as child of the tree
+          obj.parent = obj_processed
+          
+          # Apply inverse parent transform to maintain world position
+          obj.matrix_world = world_matrix
+      
+      # Remove the particle system after making instances real
+      bpy.context.view_layer.objects.active = obj_leaves2
+      bpy.ops.object.particle_system_remove()
+    
+    # Remove the emitter object since we've made all instances real
+    bpy.data.objects.remove(obj_leaves2, do_unlink=True)
   
   timings.add('leaves')
   
@@ -448,7 +517,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
     print(timings)
     
   # bpy.data.objects.remove(obj_new, do_unlink=True)
-  
   return obj_processed
 
 # This method is currently not being used.
@@ -637,6 +705,7 @@ def assign_vertices_to_group(obj, group_name, vertex_indices):
 class SCATree():
 
   def __init__(self, 
+              class_id=0,
               interNodeLength=0.25,
               killDistance=0.1,
               influenceRange=15.,
@@ -675,6 +744,7 @@ class SCATree():
               apicalcontroltiming=10,
               context=None,
               ):
+    self.class_id = class_id
     self.internodeLength = interNodeLength
     self.killDistance = killDistance
     self.influenceRange = influenceRange
@@ -756,7 +826,8 @@ class SCATree():
 
     if self.useGroups:
       size,minp = groupExtends(self.crownGroup)
-      volumefie=partial(groupdistribution,self.crownGroup,self.shadowGroup,self.shadowDensity,self.randomSeed,size,minp-bpy.context.scene.cursor.location)
+      # volumefie=partial(groupdistribution,self.crownGroup,self.shadowGroup,self.shadowDensity,self.randomSeed,size,minp-bpy.context.scene.cursor.location)
+      volumefie=partial(surface_based_groupdistribution,crowngroup=self.crownGroup,seed=self.randomSeed,size=size,pointrelativetocursor=minp-bpy.context.scene.cursor.location)
     else:
       volumefie=partial(ellipsoid2,self.crownSize*self.crownShape,self.crownSize,Vector((0,0,self.crownSize+self.crownOffset)),self.surfaceBias,self.topBias)
       
@@ -794,7 +865,7 @@ class SCATree():
     timings.add('showmarkers')
     
     self.leafParticles = next((k for k in particlesettings.keys() if k.startswith('LeavesAbstractSummer')), 'None')
-      
+    
     obj_new=createGeometry(sca,self.power,self.scale,
       self.noModifiers, self.skinMethod, self.subSurface,
       self.bLeaf, 
@@ -807,7 +878,9 @@ class SCATree():
       'None',
       self.emitterScale,
       self.timePerformance,
-      self.pruningGen)
+      self.pruningGen,
+      class_id=self.class_id
+    )
       
     if obj_new is None:
       return None

@@ -3,6 +3,7 @@ from functools import partial
 from math import sqrt
 from time import time
 from array import array
+from typing import Callable, Union
 
 from mathutils import Vector
 
@@ -66,8 +67,11 @@ def sphere(r,p):
             
 class SCA:
 
-  def __init__(self,NENDPOINTS = 100,d = 0.3,NBP = 2000, KILLDIST = 5, INFLUENCE = 15, SEED=42, volume=partial(sphere,5,Vector((0,0,8))), TROPISM=0.0, exclude=lambda p: False,
+  def __init__(self,NENDPOINTS = 100,d = 0.3,NBP = 2000, KILLDIST = 5, INFLUENCE = 15, SEED=42, volume: Union[Callable[[int], Vector], None] = None, TROPISM=0.0, exclude=lambda p: False,
         startingpoints=[], apicalcontrol=0, apicalcontrolfalloff=1, apicaltiming=0):
+    if volume is None:
+       raise ValueError("Volume function is required")
+    
     self.killdistance = KILLDIST
     self.branchlength = d
     self.maxiterations = NBP
@@ -92,15 +96,17 @@ class SCA:
     self.epv=[] # normalized direction of closest bp to this ep
     self.epd=[] # distance to closest bp
     
-    self.volumepoint=volume()
+    self.volumepoint=volume
     self.exclude=exclude
 
     # result arrays, filled *after* iterations
     self.branchpoints = []
     self.endpoints = []
 
-    for i in range(NENDPOINTS):
-        self.addEndPoint(next(self.volumepoint))
+    endpoints = []
+    endpoints.extend(self.volumepoint(n_points=NENDPOINTS))
+    for ep in endpoints:
+        self.addEndPoint(ep)
 
     if len(startingpoints)>0:
         self.bp=array('d')
@@ -233,7 +239,8 @@ class SCA:
             # when we first arrive here, t already holds the time to the first event
             niterations+=1
             while t < niterations: # we keep on adding endpoints as long as the next event still happens within this iteration
-                self.addEndPoint(next(self.volumepoint))
+                new_point = self.volumepoint(1)
+                self.addEndPoint(new_point)
                 endpointsadded+=1
                 t+=expovariate(newendpointsper1000) # time to new 'endpoint add event'
         # reduce apical control
