@@ -63,8 +63,8 @@ class ForestGenerator(bpy.types.Operator):
   updateForest: bpy.props.BoolProperty(name="Generate Forest", default=False)
 
   voxel_model_related_configuration_fields = {
-    "stem_height",
-    "stem_diameter",
+    # "stem_height",
+    # "stem_diameter",
   }
   
   @classmethod

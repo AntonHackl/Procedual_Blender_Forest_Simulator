@@ -739,6 +739,8 @@ class SCATree():
               crown_height=1.0,
               crown_width=1.0,
               crown_offset=0.0,
+              stem_height=0.0,
+              stem_diameter=0.0,
               shadowDensity=0.5,
               exclusionGroup='None',
               useTrunkGroup=False,
@@ -789,6 +791,8 @@ class SCATree():
     self.pruningGen = pruningGen
     self.numberOfEndpoints = numberOfEndpoints
     self.crown_type = crown_type
+    self.stem_height = stem_height
+    self.stem_diameter = stem_diameter
     
     if len(leaf_density) != 2:
       raise ValueError("leaf_density must be a list of two floats, e.g. [1.0, 1.0]")
@@ -847,11 +851,11 @@ class SCATree():
       pass
       
     if self.crown_type == 'ellipsoid':
-      volumefie = partial(ellipsoid2, self.crown_width, self.crown_height, Vector((0, 0, self.crown_offset)), self.surface_bias, self.top_bias)
+      volumefie = partial(ellipsoid2, self.crown_width, self.crown_height, Vector((0, 0, self.stem_height - self.crown_offset)), self.surface_bias, self.top_bias)
     elif self.crown_type == 'columnar':
-      volumefie = partial(cylinder_points, self.crown_width, self.crown_height, Vector((0, 0, self.crown_offset)), self.surface_bias, self.top_bias)
+      volumefie = partial(cylinder_points, self.crown_width, self.crown_height, Vector((0, 0, self.stem_height - self.crown_offset)), self.surface_bias, self.top_bias)
     elif self.crown_type == 'spreading':
-      volumefie = partial(hemisphere_points, self.crown_width, Vector((0, 0, self.crown_offset)), self.surface_bias, self.top_bias)
+      volumefie = partial(hemisphere_points, self.crown_width, Vector((0, 0, self.stem_height - self.crown_offset)), self.surface_bias, self.top_bias)
     else:
       raise ValueError(f"Invalid crown type: {self.crown_type}")
     
