@@ -190,8 +190,9 @@ class ForestGenerator(bpy.types.Operator):
         tree_mesh.data.materials.append(material)
       rest_collection.objects.link(tree_mesh)
       
-    max_crown_width = max([tree_configuration["crown_width"] for tree_configuration in tree_voxel_configurations]) / 2
+    max_crown_radius = max([tree_configuration["crown_width"] for tree_configuration in tree_voxel_configurations]) / 2
     original_cursor_location = bpy.context.scene.cursor.location.copy()
+    total_time = 0.0
     for i, tree_mesh in enumerate(tree_meshes):
       start_time = time.time()
       bpy.context.view_layer.update()
@@ -199,7 +200,7 @@ class ForestGenerator(bpy.types.Operator):
       crown_collection.objects.link(tree_mesh)
       bpy.context.view_layer.update()
       
-      max_range = max_crown_width + tree_voxel_configurations[tree_configuration_indices[i]]["crown_width"] / 2
+      max_range = max_crown_radius + tree_voxel_configurations[tree_configuration_indices[i]]["crown_width"] / 2
       
       in_range_trees = tree_mesh_locations.query_ball_point(tree_mesh.location, max_range)
       
@@ -243,8 +244,10 @@ class ForestGenerator(bpy.types.Operator):
       
       end_time = time.time()
       elapsed_time = end_time - start_time
+      total_time += elapsed_time
       print(f"{i+1} out of {len(tree_meshes)} trees generated at {tree_mesh.location} with configuration index {tree_configuration_indices[i]} in {elapsed_time:.2f} seconds")
-      
+    
+    print(f"Total time for forest generation: {total_time:.2f} seconds")
     self.updateForest = False
     bpy.context.scene.cursor.location = original_cursor_location
     

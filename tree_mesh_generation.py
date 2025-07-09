@@ -424,8 +424,8 @@ def createGeometry(tree, power=0.5, scale=0.01,
   obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, (np.array(radii)**power)*scale)
   bpy.ops.object.shade_smooth()
 
-  obj_processed.class_id = class_id
-  obj_processed.name = f"Tree_{obj_processed.class_id}"
+  obj_processed["class_id"] = class_id
+  obj_processed.name = f"Tree_{obj_processed['class_id']}"
   
   if leafParticles != 'None' or objectParticles != 'None':
     mesh, verts, faces, radii = createLeaves2(tree, roots, Vector((0,0,0)), emitterscale)
@@ -446,8 +446,8 @@ def createGeometry(tree, power=0.5, scale=0.01,
 
     if leafParticles != 'None':
       bpy.ops.object.particle_system_add()
-      obj_leaves2.class_id = class_id
-      obj_leaves2.name = f"Leaves_{obj_leaves2.class_id}"
+      obj_leaves2["class_id"] = class_id
+      obj_leaves2.name = f"Leaves_{obj_leaves2['class_id']}"
       obj_leaves2.particle_systems.active.settings = particlesettings[leafParticles]
       # obj_leaves2.particle_systems.active.settings.count = len(faces)
       obj_leaves2.particle_systems.active.settings.count = int(len(faces) * random.uniform(leaf_density[0], leaf_density[1]))
@@ -461,8 +461,8 @@ def createGeometry(tree, power=0.5, scale=0.01,
       for leaf_idx, obj in enumerate(bpy.context.selected_objects):
         if obj != obj_leaves2 and obj != obj_processed:
           
-          obj.class_id = class_id
-          obj.name = f"Leaf_{obj.class_id}_{leaf_idx}"
+          obj["class_id"] = class_id
+          obj.name = f"Leaf_{obj['class_id']}_{leaf_idx}"
           
           # Store world matrix before parenting
           world_matrix = obj.matrix_world.copy()
@@ -492,8 +492,8 @@ def createGeometry(tree, power=0.5, scale=0.01,
       for obj_idx, obj in enumerate(bpy.context.selected_objects):
         if obj != obj_leaves2 and obj != obj_processed:
           
-          obj.class_id = class_id
-          obj.name = f"Object_{obj.class_id}_{obj_idx}"
+          obj["class_id"] = class_id
+          obj.name = f"Object_{obj['class_id']}_{obj_idx}"
           
           # Store world matrix before parenting
           world_matrix = obj.matrix_world.copy()
