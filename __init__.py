@@ -128,7 +128,6 @@ class ForestGenerator(bpy.types.Operator):
     :return: A set indicating the execution status of the operator.
     :rtype: Set[str, str]
     """
-    
     random.seed(random.randint(0, 1_000_000))
     self.update_tree_configurations()
     if not self.updateForest:

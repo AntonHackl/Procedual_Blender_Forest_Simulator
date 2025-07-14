@@ -619,8 +619,8 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
   leave_nodes = [bp for bp in tree.branchpoints if bp not in trunk_nodes and bp.apex is None]
   branch_node_indices = [i for i in range(len(tree.branchpoints)) if i not in trunk_indices]
 
-  trunk_material = create_material("TrunkMaterial", (0.77, 0.64, 0.52, 1), 0) # light brown
-  branch_material = create_material("BranchMaterial", (0.36, 0.25, 0.20, 1), 1) # dark brown
+  trunk_material = create_material("TrunkMaterial", (0.77, 0.64, 0.52, 1), 2) # light brown
+  branch_material = create_material("BranchMaterial", (0.36, 0.25, 0.20, 1), 3) # dark brown
   assign_material(obj_new, trunk_material)
   assign_material(obj_new, branch_material)
   trunk_vertex_indices = []
@@ -801,12 +801,13 @@ class SCATree():
     # we load this library matrial unconditionally, i.e. each time we execute() which sounds like a waste
     # but library loads get undone as well if we redo the operator ...
     global barkmaterials
-    barkmaterials = load_materials_from_bundled_lib('add_mesh_space_tree', 'material_lib.blend', 'Bark')
+    barkmaterials = load_materials_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'Bark')
 
     #bpy.types.MESH_OT_sca_tree.barkmaterials = barkmaterials
         
     # we *must* execute this every time because this operator has UNDO as attribute so anything that's changed will be reverted on each execution. If we initialize this only once, the operator crashes Blender because it will refer to stale data.
-    particlesettings = load_particlesettings_from_bundled_lib('PROCEDUAL_BLENDER_FOREST_SIMULATOR', 'material_lib.blend', 'LeafEmitter')
+    print('I AM HERE 2')
+    particlesettings = load_particlesettings_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'LeafEmitter')
     bpy.types.MESH_OT_forest_generator.particlesettings = particlesettings
       
     self.leafParticles = availableParticleSettings(self, context, particlesettings)[9]

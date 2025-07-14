@@ -30,8 +30,11 @@ def run_forest_generation(tree_config_path, surface_path, output_path=None):
         result = bpy.ops.mesh.forest_generator(
             updateForest=True,
             surface=surface_path,
-            treeConfigurationCount=1,
-            tree_configurations=[{"name": "tree_config_1", "path": tree_config_path, "weight": 1.0}]
+            treeConfigurationCount=3,
+            tree_configurations=[
+                {"name": "tree_config_1", "path": '/home/ubuntu/blender/4.4/scripts/addons_core/Procedual_Blender_Forest_Simulator/tree_configs/columnar_tree.json', "weight": 1.0},
+                {"name": "tree_config_2", "path": '/home/ubuntu/blender/4.4/scripts/addons_core/Procedual_Blender_Forest_Simulator/tree_configs/sphere_tree.json', "weight": 1.0},
+                {"name": "tree_config_3", "path": '/home/ubuntu/blender/4.4/scripts/addons_core/Procedual_Blender_Forest_Simulator/tree_configs/spreading_tree.json', "weight": 1.0}]
         )
         print(f"✓ Forest generation operator result: {result}")
         
