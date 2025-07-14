@@ -464,16 +464,12 @@ def createGeometry(tree, power=0.5, scale=0.01,
           obj["class_id"] = class_id
           obj.name = f"Leaf_{obj['class_id']}_{leaf_idx}"
           
-          # Store world matrix before parenting
           world_matrix = obj.matrix_world.copy()
           
-          # Set as child of the tree
           obj.parent = obj_processed
           
-          # Apply inverse parent transform to maintain world position
           obj.matrix_world = world_matrix
       
-      # Remove the particle system after making instances real
       bpy.context.view_layer.objects.active = obj_leaves2
       bpy.ops.object.particle_system_remove()
       
@@ -484,7 +480,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
       obj_leaves2.particle_systems.active.name = 'Objects'
       obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
       
-      # Apply particle system to make instances real
       bpy.context.view_layer.objects.active = obj_leaves2
       obj_leaves2.select_set(True)
       bpy.ops.object.duplicates_make_real()
@@ -495,20 +490,15 @@ def createGeometry(tree, power=0.5, scale=0.01,
           obj["class_id"] = class_id
           obj.name = f"Object_{obj['class_id']}_{obj_idx}"
           
-          # Store world matrix before parenting
           world_matrix = obj.matrix_world.copy()
           
-          # Set as child of the tree
           obj.parent = obj_processed
           
-          # Apply inverse parent transform to maintain world position
           obj.matrix_world = world_matrix
       
-      # Remove the particle system after making instances real
       bpy.context.view_layer.objects.active = obj_leaves2
       bpy.ops.object.particle_system_remove()
     
-    # Remove the emitter object since we've made all instances real
     bpy.data.objects.remove(obj_leaves2, do_unlink=True)
   
   timings.add('leaves')
