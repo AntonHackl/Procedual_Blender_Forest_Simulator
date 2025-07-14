@@ -473,7 +473,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
       obj_leaves2.name = f"Leaves_{obj_leaves2['class_id']}"
       obj_leaves2.particle_systems.active.settings = particlesettings[leafParticles]
       # obj_leaves2.particle_systems.active.settings.count = len(faces)
-      obj_leaves2.particle_systems.active.settings.count = int(len(faces) * random.uniform(leaf_density[0], leaf_density[1])) * 0
+      obj_leaves2.particle_systems.active.settings.count = int(len(faces) * random.uniform(leaf_density[0], leaf_density[1]))
       obj_leaves2.particle_systems.active.name = 'Leaves'
       obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
       
