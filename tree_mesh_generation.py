@@ -796,7 +796,6 @@ class SCATree():
     #bpy.types.MESH_OT_sca_tree.barkmaterials = barkmaterials
         
     # we *must* execute this every time because this operator has UNDO as attribute so anything that's changed will be reverted on each execution. If we initialize this only once, the operator crashes Blender because it will refer to stale data.
-    print('I AM HERE 2')
     particlesettings = load_particlesettings_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'LeafEmitter')
     bpy.types.MESH_OT_forest_generator.particlesettings = particlesettings
       
