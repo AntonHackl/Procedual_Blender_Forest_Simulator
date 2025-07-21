@@ -101,34 +101,54 @@ def check_available_backends():
         print("  Install with: pip install openexr_numpy")
 
 def render_point_cloud():
+    root_props = bpy.context.scene.pointCloudRenderProperties
+    selected_index = root_props.selected_scanner
+    scanner = root_props.laser_scanners[selected_index]
+    
+    print(f"Selected scanner: {scanner.name}")
+    scanner.noise_generator.enabled = False
+    scanner.noise_generator.standard_deviation = 0.0
+    scanner.noise_generator.mean = 0.0
+
     bpy.ops.render.render_point_cloud()
 
 def set_gpu_backend():
     """Set the scanning backend to GPU."""
     
-    # Enable the addon first
     bpy.ops.preferences.addon_enable(module="pointCloudRender")
     
-    # Get addon preferences
     preferences = bpy.context.preferences.addons["pointCloudRender"].preferences
     
-    # Set the scanning backend to GPU
     preferences.scanning_backend_type = "GPUScanningBackend"
     
-    # Optionally configure GPU camera type
     gpu_settings = preferences.GPUScanningBackendSettings
-    gpu_settings.camera_type = "PanoramaGPUCamera"  # Works on vanilla Blender
+    gpu_settings.camera_type = "PanoramaGPUCamera"
     
     print(f"Backend set to: {preferences.scanning_backend_type}")
     print(f"Camera type: {gpu_settings.camera_type}")
 
+def set_cpu_backend():
+    """Set the scanning backend to CPU."""
+    
+    bpy.ops.preferences.addon_enable(module="pointCloudRender")
+    
+    preferences = bpy.context.preferences.addons["pointCloudRender"].preferences
+    
+    preferences.scanning_backend_type = "CPUScanningBackend"
+    
+    cpu_settings = preferences.CPUScanningBackendSettings
+    # You can set the sampler type if you want, e.g.:
+    # cpu_settings.sampler_type = "SceneBVHSampler"
+    cpu_settings.sampler_type = "ObjectBVHSampler" 
+    
+    print(f"Backend set to: {preferences.scanning_backend_type}")
+    print(f"Sampler type: {cpu_settings.sampler_type}")
+
 def set_csv_writer():
     """Set the output format to CSV."""
     
-    # Enable the addon first
     bpy.ops.preferences.addon_enable(module="pointCloudRender")
     
-    # Get addon preferences
     preferences = bpy.context.preferences.addons["pointCloudRender"].preferences
 
     preferences.writer_type = "CSVSampleWriter"
@@ -138,10 +158,8 @@ def set_csv_writer():
 def set_las_writer():
     """Set the output format to LAS."""
     
-    # Enable the addon first
     bpy.ops.preferences.addon_enable(module="pointCloudRender")
     
-    # Get addon preferences
     preferences = bpy.context.preferences.addons["pointCloudRender"].preferences
     
     # Check if LAS writer is available
@@ -191,7 +209,8 @@ if __name__ == "__main__":
         exit()
 
     check_available_backends()
-    set_gpu_backend()
+    # set_gpu_backend()
+    set_cpu_backend()
     # if not set_las_writer():
     #     print("Failed to set LAS writer")
     #     exit()
