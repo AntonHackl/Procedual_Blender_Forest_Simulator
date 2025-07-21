@@ -54,7 +54,7 @@ def load_materials_from_bundled_lib(script_name, library, material_name):
             if exists(fullpath + ".zip"):
                 extract(fullpath, library, join(path, dir, script_name))
                 return load_materials(fullpath, material_name)
-    return None
+    return load_materials('/root/media/data/Tree_Generation/Procedual_Blender_Forest_Simulator/material_lib.blend', material_name)
 
 def load_particlesettings_from_bundled_lib(script_name, library, object_name):
     """Load particle settings associated with objects from a library located in the installation directory of a script.""" 
@@ -66,7 +66,7 @@ def load_particlesettings_from_bundled_lib(script_name, library, object_name):
             if exists(fullpath + ".zip"):
                 extract(fullpath, library, join(path, dir, script_name))
                 return load_particlesettings(fullpath, object_name)
-    return None
+    return load_particlesettings('/root/media/data/Tree_Generation/Procedual_Blender_Forest_Simulator/material_lib.blend', object_name)
 
 # def get_vertex_group(context, name):
 #     """Get a reference to the named vertex group of the active object, creating it if necessary."""

@@ -487,16 +487,12 @@ def createGeometry(tree, power=0.5, scale=0.01,
           obj["class_id"] = class_id
           obj.name = f"Leaf_{obj['class_id']}_{leaf_idx}"
           
-          # Store world matrix before parenting
           world_matrix = obj.matrix_world.copy()
           
-          # Set as child of the tree
           obj.parent = obj_processed
           
-          # Apply inverse parent transform to maintain world position
           obj.matrix_world = world_matrix
       
-      # Remove the particle system after making instances real
       bpy.context.view_layer.objects.active = obj_leaves2
       bpy.ops.object.particle_system_remove()
       
@@ -507,7 +503,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
       obj_leaves2.particle_systems.active.name = 'Objects'
       obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
       
-      # Apply particle system to make instances real
       bpy.context.view_layer.objects.active = obj_leaves2
       obj_leaves2.select_set(True)
       bpy.ops.object.duplicates_make_real()
@@ -518,20 +513,15 @@ def createGeometry(tree, power=0.5, scale=0.01,
           obj["class_id"] = class_id
           obj.name = f"Object_{obj['class_id']}_{obj_idx}"
           
-          # Store world matrix before parenting
           world_matrix = obj.matrix_world.copy()
           
-          # Set as child of the tree
           obj.parent = obj_processed
           
-          # Apply inverse parent transform to maintain world position
           obj.matrix_world = world_matrix
       
-      # Remove the particle system after making instances real
       bpy.context.view_layer.objects.active = obj_leaves2
       bpy.ops.object.particle_system_remove()
     
-    # Remove the emitter object since we've made all instances real
     bpy.data.objects.remove(obj_leaves2, do_unlink=True)
   
   timings.add('leaves')
@@ -642,8 +632,8 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
   leave_nodes = [bp for bp in tree.branchpoints if bp not in trunk_nodes and bp.apex is None]
   branch_node_indices = [i for i in range(len(tree.branchpoints)) if i not in trunk_indices]
 
-  trunk_material = create_material("TrunkMaterial", (0.77, 0.64, 0.52, 1), 0) # light brown
-  branch_material = create_material("BranchMaterial", (0.36, 0.25, 0.20, 1), 1) # dark brown
+  trunk_material = create_material("TrunkMaterial", (0.77, 0.64, 0.52, 1), 2) # light brown
+  branch_material = create_material("BranchMaterial", (0.36, 0.25, 0.20, 1), 3) # dark brown
   assign_material(obj_new, trunk_material)
   assign_material(obj_new, branch_material)
   trunk_vertex_indices = []
@@ -828,12 +818,12 @@ class SCATree():
     # we load this library matrial unconditionally, i.e. each time we execute() which sounds like a waste
     # but library loads get undone as well if we redo the operator ...
     global barkmaterials
-    barkmaterials = load_materials_from_bundled_lib('add_mesh_space_tree', 'material_lib.blend', 'Bark')
+    barkmaterials = load_materials_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'Bark')
 
     #bpy.types.MESH_OT_sca_tree.barkmaterials = barkmaterials
         
     # we *must* execute this every time because this operator has UNDO as attribute so anything that's changed will be reverted on each execution. If we initialize this only once, the operator crashes Blender because it will refer to stale data.
-    particlesettings = load_particlesettings_from_bundled_lib('PROCEDUAL_BLENDER_FOREST_SIMULATOR', 'material_lib.blend', 'LeafEmitter')
+    particlesettings = load_particlesettings_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'LeafEmitter')
     bpy.types.MESH_OT_forest_generator.particlesettings = particlesettings
       
     self.leafParticles = availableParticleSettings(self, context, particlesettings)[9]

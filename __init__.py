@@ -124,7 +124,6 @@ class ForestGenerator(bpy.types.Operator):
     :return: A set indicating the execution status of the operator.
     :rtype: Set[str, str]
     """
-    
     random.seed(random.randint(0, 1_000_000))
     self.update_tree_configurations()
     if not self.updateForest:
@@ -173,6 +172,16 @@ class ForestGenerator(bpy.types.Operator):
     if not exlusion_collection:
       exlusion_collection = bpy.data.collections.new("Exclusion")
       bpy.context.scene.collection.children.link(exlusion_collection)
+
+    for i, tree_mesh in enumerate(tree_meshes):
+      material = self.create_random_material(f"Material_{i}")
+      if tree_mesh.data.materials:
+        tree_mesh.data.materials[0] = material
+      else:
+        tree_mesh.data.materials.append(material)
+      rest_collection.objects.link(tree_mesh)
+      
+    max_crown_radius = max([tree_configuration["crown_width"] for tree_configuration in tree_voxel_configurations]) / 2
       
     original_cursor_location = bpy.context.scene.cursor.location.copy()
     for i, tree_position in enumerate(tree_positions):
