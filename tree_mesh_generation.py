@@ -461,7 +461,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
     converted_qsm = convert_sca_skeleton_to_qsm(tree, radii)
     qsm_path = os.path.join(os.path.dirname(__file__), 'leafgen', 'src', 'example-data', 'generated_tree.mat')
     generate_foliage(converted_qsm, qsm_path, execute_matlab=True)
-
+    leafParticles = 'None'
     if leafParticles != 'None' or objectParticles != 'None':
         mesh, verts, faces, radii = createLeaves2(tree, roots, Vector((0,0,0)), emitterscale)
         obj_leaves2 = bpy.data.objects.new(mesh.name, mesh)

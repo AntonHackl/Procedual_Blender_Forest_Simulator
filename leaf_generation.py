@@ -12,18 +12,18 @@ from .sca import SCA
 
 @dataclass(frozen=True)
 class QSM:
-  start: np.ndarray
-  axis: np.ndarray
-  length: np.ndarray
-  radius: np.ndarray
-  parent: np.ndarray
-  branch: np.ndarray
+    start: np.ndarray
+    axis: np.ndarray
+    length: np.ndarray
+    radius: np.ndarray
+    parent: np.ndarray
+    branch: np.ndarray
 
 @dataclass(frozen=True)
 class ConversionNode:
-  sca_index: int
-  qsm_parent: int
-  qsm_branch: int
+    sca_index: int
+    qsm_parent: int
+    qsm_branch: int
 
 def import_obj_to_blender(obj_path: str, collection_name: str = "Generated_Leaves"):
     try:
@@ -38,7 +38,9 @@ def import_obj_to_blender(obj_path: str, collection_name: str = "Generated_Leave
             collection = bpy.data.collections[collection_name]
         
         active_object = bpy.context.active_object
-        bpy.ops.wm.obj_import(filepath=obj_path)
+        bpy.ops.wm.obj_import(filepath=obj_path, forward_axis='Y', up_axis='Z')
+        foliage_obj = bpy.context.view_layer.objects.active
+        foliage_obj.parent = active_object
         bpy.context.view_layer.objects.active = active_object
         
         imported_objects = []
@@ -70,7 +72,6 @@ def execute_matlab_script(script_path: str):
         print(f"Executing MATLAB script: {script_path}")
         
         eng.run(script_path, nargout=0)
-        
         eng.quit()
         
         print(f"MATLAB script executed successfully: {script_path}")
@@ -96,8 +97,7 @@ def generate_foliage(qsm: QSM, mat_path: str, execute_matlab: bool = False, matl
             matlab_script_path = os.path.join(script_dir, 'main_qsm_direct.m')
         
         if os.path.exists(matlab_script_path):
-            # success = execute_matlab_script(matlab_script_path)
-            success = True
+            success = execute_matlab_script(matlab_script_path)
             if success and import_result:
                 obj_path = os.path.join(os.path.dirname(__file__), 'leafgen', 'src', 'leaves_export.obj')
                 import_obj_to_blender(obj_path)
@@ -105,49 +105,49 @@ def generate_foliage(qsm: QSM, mat_path: str, execute_matlab: bool = False, matl
             print(f"MATLAB script not found: {matlab_script_path}")
 
 def convert_sca_skeleton_to_qsm(sca_tree: SCA, radii: np.ndarray):
-  branchpoints = sca_tree.branchpoints
+    branchpoints = sca_tree.branchpoints
 
-  start: list[Vector] = []
-  axis: list[Vector] = []
-  length: list[float] = []
-  radius: list[float] = []
-  parent: list[int] = []
-  branch: list[int] = []
+    start: list[Vector] = []
+    axis: list[Vector] = []
+    length: list[float] = []
+    radius: list[float] = []
+    parent: list[int] = []
+    branch: list[int] = []
 
-  active_list: List[ConversionNode] = [ConversionNode(0, 0, 1)]
+    active_list: List[ConversionNode] = [ConversionNode(0, 0, 1)]
 
-  inverse_graph = create_inverse_graph(branchpoints)
-  while len(active_list) > 0:
-    current_node = active_list.pop(0)
-    current_branchpoint = branchpoints[current_node.sca_index]
-    current_position = current_branchpoint.v
-    
-    children = inverse_graph[current_node.sca_index]
-    branch_index = current_node.qsm_branch
-    qsm_parent_index = len(start)
-    for sca_child_index in children:
-      start.append(current_branchpoint.v)
-      
-      child_position = branchpoints[sca_child_index].v
-      current_to_child = child_position - current_position
-      axis.append(current_to_child.normalized())
-      length.append(current_to_child.length)
-      radius.append(radii[sca_child_index])
-      parent.append(qsm_parent_index)
-      branch.append(branch_index)
+    inverse_graph = create_inverse_graph(branchpoints)
+    while len(active_list) > 0:
+        current_node = active_list.pop(0)
+        current_branchpoint = branchpoints[current_node.sca_index]
+        current_position = current_branchpoint.v
+        
+        children = inverse_graph[current_node.sca_index]
+        branch_index = current_node.qsm_branch
+        qsm_parent_index = len(start)
+        for sca_child_index in children:
+            start.append(current_branchpoint.v)
+            
+            child_position = branchpoints[sca_child_index].v
+            current_to_child = child_position - current_position
+            axis.append(current_to_child.normalized())
+            length.append(current_to_child.length)
+            radius.append(radii[sca_child_index])
+            parent.append(qsm_parent_index)
+            branch.append(branch_index)
 
-      branch_index += 1 if len(children) > 1 else 0
-      active_list.append(ConversionNode(
-        sca_index=sca_child_index,
-        qsm_parent=len(start),
-        qsm_branch=branch_index,
-      ))
+            branch_index += 1 if len(children) > 1 else 0
+            active_list.append(ConversionNode(
+                sca_index=sca_child_index,
+                qsm_parent=len(start),
+                qsm_branch=branch_index,
+            ))
 
-  start_arr = np.array(start)
-  axis_arr = np.array(axis)
-  length_arr = np.array(length).reshape(-1, 1)
-  radius_arr = np.array(radius).reshape(-1, 1)
-  parent_arr = np.array(parent).reshape(-1, 1)
-  branch_arr = np.array(branch).reshape(-1, 1)
+    start_arr = np.array(start)
+    axis_arr = np.array(axis)
+    length_arr = np.array(length).reshape(-1, 1)
+    radius_arr = np.array(radius).reshape(-1, 1)
+    parent_arr = np.array(parent).reshape(-1, 1)
+    branch_arr = np.array(branch).reshape(-1, 1)
 
-  return QSM(start_arr, axis_arr, length_arr, radius_arr, parent_arr, branch_arr)
+    return QSM(start_arr, axis_arr, length_arr, radius_arr, parent_arr, branch_arr)
