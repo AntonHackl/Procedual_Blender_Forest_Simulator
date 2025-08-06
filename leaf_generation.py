@@ -1,7 +1,7 @@
 from dataclasses import dataclass, asdict
 import numpy as np
 from scipy.io import savemat
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from mathutils import Vector
 import os
 import bpy
@@ -9,6 +9,59 @@ import matlab.engine
 
 from .utils import create_inverse_graph
 from .sca import SCA
+
+
+class MatlabEngineProvider:
+    """
+    Singleton class to manage a single MATLAB engine instance.
+    """
+    _instance: Optional['MatlabEngineProvider'] = None
+    _engine: Optional[matlab.engine.MatlabEngine] = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def get_engine(self) -> matlab.engine.MatlabEngine:
+        """
+        Returns the MATLAB engine instance, creating it if it doesn't exist.
+        
+        :return: MATLAB engine instance
+        :raises: Exception if engine cannot be started
+        """
+        if self._engine is None:
+            try:
+                print("Starting MATLAB engine...")
+                self._engine = matlab.engine.start_matlab()
+                print("MATLAB engine started successfully")
+            except Exception as e:
+                print(f"Failed to start MATLAB engine: {e}")
+                raise
+        return self._engine
+    
+    def quit_engine(self):
+        """
+        Quits the MATLAB engine and resets the singleton state.
+        """
+        if self._engine is not None:
+            try:
+                self._engine.quit()
+                print("MATLAB engine quit successfully")
+            except Exception as e:
+                print(f"Error quitting MATLAB engine: {e}")
+            finally:
+                self._engine = None
+    
+    def is_engine_running(self) -> bool:
+        """
+        Check if the MATLAB engine is currently running.
+        
+        :return: True if engine is running, False otherwise
+        """
+        return self._engine is not None
+
+
 
 @dataclass(frozen=True)
 class QSM:
@@ -56,11 +109,17 @@ def import_obj_to_blender(obj_path: str, collection_name: str = "Generated_Leave
         print(f"Error importing OBJ file: {e}")
         return []
 
-def execute_matlab_script(script_path: str):
+def execute_matlab_script(script_path: str, quit_after: bool = False):
+    """
+    Executes a MATLAB script using the singleton engine instance.
+    
+    :param script_path: Path to the MATLAB script to execute
+    :param quit_after: Whether to quit the engine after execution (default: False)
+    :return: True if successful, False otherwise
+    """
     try:
-        
-        print("Starting MATLAB engine...")
-        eng = matlab.engine.start_matlab()
+        matlab_singleton = MatlabEngineProvider()
+        eng = matlab_singleton.get_engine()
         
         script_dir = os.path.dirname(script_path)
         eng.addpath(script_dir, nargout=0)
@@ -72,7 +131,9 @@ def execute_matlab_script(script_path: str):
         print(f"Executing MATLAB script: {script_path}")
         
         eng.run(script_path, nargout=0)
-        eng.quit()
+        
+        if quit_after:
+            matlab_singleton.quit_engine()
         
         print(f"MATLAB script executed successfully: {script_path}")
         return True

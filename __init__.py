@@ -1,4 +1,6 @@
 import sys
+
+from leaf_generation import MatlabEngineProvider
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python311\\site-packages")
 
 import time
@@ -33,7 +35,7 @@ class TreeConfiguration(bpy.types.PropertyGroup):
         name="Tree Configuration File", 
         description="Path to the file", 
         subtype='FILE_PATH',
-        default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data Analysis\\Procedual_Blender_Forest_Simulator\\tree_configs\\sphere_tree.json"  
+        default="C:\\Users\\anton\\Documents\\Uni\\Spatial_Data_Analysis\\Procedual_Blender_Forest_Simulator\\tree_configs\\sphere_tree.json"  
     )
     weight: bpy.props.FloatProperty(
         name="Weight",
@@ -51,7 +53,7 @@ class ForestGenerator(bpy.types.Operator):
         name="Surface", 
         description="Path to the file", 
         subtype='FILE_PATH',
-        default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data Analysis\\surface.csv"
+        default="C:\\Users\\anton\\Documents\\Uni\\Spatial_Data_Analysis\\Procedual_Blender_Forest_Simulator\\surface.csv"
     )
     treeConfigurationCount: bpy.props.IntProperty(
         name="Number of tree configurations",
@@ -186,7 +188,10 @@ class ForestGenerator(bpy.types.Operator):
             end_time = time.time()
             elapsed_time = end_time - start_time
             print(f"{i+1} out of {len(tree_positions)} trees generated at {tree_position[0]} with configuration index {tree_position[1]} in {elapsed_time:.2f} seconds")
-        
+
+        matlab_engine_provider = MatlabEngineProvider()
+        matlab_engine_provider.quit_engine()
+
         self.updateForest = False
         bpy.context.scene.cursor.location = original_cursor_location
         
