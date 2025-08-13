@@ -1,7 +1,7 @@
 from dataclasses import dataclass, asdict
 import numpy as np
 from scipy.io import savemat
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 from mathutils import Vector
 import os
 import bpy
@@ -78,17 +78,11 @@ class ConversionNode:
     qsm_parent: int
     qsm_branch: int
 
-def import_obj_to_blender(obj_path: str, collection_name: str = "Generated_Leaves"):
+def import_obj_to_blender(obj_path: str):
     try:
         if not os.path.exists(obj_path):
             print(f"OBJ file not found: {obj_path}")
             return []
-        
-        if collection_name not in bpy.data.collections:
-            collection = bpy.data.collections.new(collection_name)
-            bpy.context.scene.collection.children.link(collection)
-        else:
-            collection = bpy.data.collections[collection_name]
         
         active_object = bpy.context.active_object
         bpy.ops.wm.obj_import(filepath=obj_path, forward_axis='Y', up_axis='Z')
@@ -96,18 +90,12 @@ def import_obj_to_blender(obj_path: str, collection_name: str = "Generated_Leave
         foliage_obj.parent = active_object
         bpy.context.view_layer.objects.active = active_object
         
-        imported_objects = []
-        for obj in bpy.context.selected_objects:
-            bpy.context.scene.collection.objects.unlink(obj)
-            collection.objects.link(obj)
-            imported_objects.append(obj)
-        
-        print(f"Successfully imported {len(imported_objects)} objects from: {obj_path}")
-        return imported_objects
-        
+        print(f"Successfully imported the foliage object from: {obj_path}")
+        return foliage_obj
+
     except Exception as e:
         print(f"Error importing OBJ file: {e}")
-        return []
+        return None
 
 def execute_matlab_script(script_path: str, quit_after: bool = False):
     """
@@ -142,28 +130,91 @@ def execute_matlab_script(script_path: str, quit_after: bool = False):
         print(f"Error executing MATLAB script: {e}")
         return False
 
-def generate_foliage(qsm: QSM, mat_path: str, execute_matlab: bool = False, matlab_script_path: str = None, import_result: bool = True):
+def execute_leaf_generation_with_params(leaf_params: Optional[Dict[str, Any]] = None, quit_after: bool = False) -> bool:
+    """Execute MATLAB leaf generation using the parameterized function run_leaf_generation_with_params.
+    Builds a MATLAB struct from the provided parameters and calls the function.
+
+    Parameters expected (all optional, defaults applied in MATLAB code if omitted):
+    - pLADDh: [alpha, beta]
+    - pLADDd: [k, lambda]
+    - fun_pLSD: [mu, sigma2]
+    - totalLeafArea: float
+    """
+    try:
+        matlab_singleton = MatlabEngineProvider()
+        eng = matlab_singleton.get_engine()
+
+        leafgen_src = os.path.join(os.path.dirname(__file__), 'leafgen', 'src')
+        if os.path.exists(leafgen_src):
+            eng.addpath(leafgen_src, nargout=0)
+
+        # Build MATLAB struct
+        mpairs = []
+        params = leaf_params or {}
+        def add_pair(name: str, value):
+            nonlocal mpairs
+            if value is None:
+                return
+            if isinstance(value, (list, tuple)):
+                mpairs.extend([name, matlab.double([list(value)]) if len(value) > 1 else matlab.double([value])])
+            elif isinstance(value, (int, float)):
+                mpairs.extend([name, matlab.double([float(value)])])
+            else:
+                # fallback: try to convert numpy arrays
+                try:
+                    arr = np.asarray(value).astype(float).reshape(1, -1)
+                    mpairs.extend([name, matlab.double(arr.tolist())])
+                except Exception:
+                    pass
+
+        add_pair('pLADDh', params.get('pLADDh', [8, 3]))
+        add_pair('pLADDd', params.get('pLADDd', [2.0, 1.5]))
+        add_pair('fun_pLSD', params.get('fun_pLSD', [0.008, 0.00025**2]))
+        add_pair('totalLeafArea', params.get('totalLeafArea', 20))
+
+        leaf_params_struct = eng.feval('struct', *mpairs) if mpairs else eng.eval('struct()', nargout=1)
+
+        # Call the MATLAB function
+        print("Executing MATLAB function: run_leaf_generation_with_params")
+        eng.run_leaf_generation_with_params(leaf_params_struct, nargout=0)
+
+        if quit_after:
+            matlab_singleton.quit_engine()
+
+        print("MATLAB parameterized leaf generation finished")
+        return True
+
+    except Exception as e:
+        print(f"Error executing parameterized MATLAB leaf generation: {e}")
+        return False
+
+def generate_foliage(
+    qsm: QSM,
+    mat_path: str,
+    execute_matlab: bool = False,
+    matlab_script_path: str | None = None,
+    import_result: bool = True,
+    leaf_params: Optional[Dict[str, Any]] = None,
+):
     qsm_dict = asdict(qsm)
     for key, value in qsm_dict.items():
         arr = np.asarray(value)
         if arr.ndim == 1:
             qsm_dict[key] = arr.reshape(-1, 1)
-    savemat(mat_path, {'qsm': {'cylinder': qsm_dict}})
+    # Ensure we save to the MATLAB script's expected folder
+    script_dir = os.path.join(os.path.dirname(__file__), 'leafgen', 'src')
+    mat_out = os.path.join(script_dir, 'example-data', 'generated_tree.mat')
+    os.makedirs(os.path.dirname(mat_out), exist_ok=True)
+    savemat(mat_out, {'qsm': {'cylinder': qsm_dict}})
     
     print(f"QSM saved to: {mat_path}")
     
     if execute_matlab:
-        if matlab_script_path is None:
-            script_dir = os.path.join(os.path.dirname(__file__), 'leafgen', 'src')
-            matlab_script_path = os.path.join(script_dir, 'main_qsm_direct.m')
-        
-        if os.path.exists(matlab_script_path):
-            success = execute_matlab_script(matlab_script_path)
-            if success and import_result:
-                obj_path = os.path.join(os.path.dirname(__file__), 'leafgen', 'src', 'leaves_export.obj')
-                import_obj_to_blender(obj_path)
-        else:
-            print(f"MATLAB script not found: {matlab_script_path}")
+        # Always use parameterized MATLAB function now
+        success = execute_leaf_generation_with_params(leaf_params)
+        if success and import_result:
+            obj_path = os.path.join(os.path.dirname(__file__), 'leafgen', 'src', 'example-data', 'leaves_export.obj')
+            import_obj_to_blender(obj_path)
 
 def convert_sca_skeleton_to_qsm(sca_tree: SCA, radii: np.ndarray):
     branchpoints = sca_tree.branchpoints

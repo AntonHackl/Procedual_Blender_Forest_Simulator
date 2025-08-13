@@ -172,6 +172,15 @@ class ForestGenerator(bpy.types.Operator):
             for tree_configuration in tree_configurations
         ]
 
+        for cfg in tree_mesh_configurations:
+            if 'leaf_params' not in cfg or not isinstance(cfg.get('leaf_params'), dict):
+                cfg['leaf_params'] = {
+                    'pLADDh': [8, 3],
+                    'pLADDd': [2.0, 1.5],
+                    'fun_pLSD': [0.008, (0.00025)**2],
+                    'totalLeafArea': 20,
+                }
+
         crown_widths = [tree_configuration["crown_width"] for tree_configuration in tree_mesh_configurations]
         tree_positions = poisson_disk_sampling_on_surface(surface_data, configuration_weights, crown_widths)
         
@@ -187,14 +196,19 @@ class ForestGenerator(bpy.types.Operator):
             bpy.context.scene.cursor.location = tree_location
             bpy.context.view_layer.update()
 
+            cfg = dict(tree_mesh_configurations[tree_position[1]])
+            cfg_leaf_params = cfg.pop('leaf_params', None)
             sca_tree_generator = SCATree(
                 noModifiers=False,
                 subSurface=True,
                 randomSeed=random.randint(0, 1_000_000),
                 context=context,
                 class_id=i,
-                **tree_mesh_configurations[tree_position[1]],
+                **cfg,
             )
+
+            # propagate leaf_params from config to generator for downstream usage
+            setattr(sca_tree_generator, 'leaf_params', cfg_leaf_params)
 
             sca = sca_tree_generator.prepare_growth(context, edge_index)
             prepared_trees.append(PreparedTree(

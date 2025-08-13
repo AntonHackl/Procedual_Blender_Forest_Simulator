@@ -227,16 +227,6 @@ def groupdistribution(crowngroup,shadowgroup=None,shadowdensity=0.5, seed=0,size
             nyield+=1
             yield v
 
-def surface_based_groupdistribution(crowngroup, n_points=1000, seed=0, size=Vector((1,1,1)), pointrelativetocursor=Vector((0,0,0))):
-    """Generate points on mesh surfaces instead of checking if points are inside"""
-
-    # Pre-generate surface points for crown group
-    crown_surface_points = []
-    if crowngroup in bpy.data.collections:
-        crown_surface_points = sample_mesh_group_surface_points(crowngroup, n_points, seed)
-
-    return crown_surface_points
-
 def groupExtends(group):
     """
     return a size,minimum tuple both Vector elements, describing the size and position
@@ -458,7 +448,9 @@ def createGeometry(tree, power=0.5, scale=0.01,
 
     converted_qsm = convert_sca_skeleton_to_qsm(tree, radii)
     qsm_path = os.path.join(os.path.dirname(__file__), 'leafgen', 'src', 'example-data', 'generated_tree.mat')
-    generate_foliage(converted_qsm, qsm_path, execute_matlab=True)
+    # Read leaf parameters from the tree configuration json (defaults provided upstream)
+    leaf_params = getattr(tree, 'leaf_params', None)
+    generate_foliage(converted_qsm, qsm_path, execute_matlab=True, leaf_params=leaf_params)
     leafParticles = 'None'
     if leafParticles != 'None' or objectParticles != 'None':
         mesh, verts, faces, radii = createLeaves2(tree, roots, Vector((0,0,0)), emitterscale)

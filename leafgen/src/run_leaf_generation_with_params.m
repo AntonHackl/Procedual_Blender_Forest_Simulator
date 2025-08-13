@@ -12,8 +12,14 @@ addpath(genpath(pwd))
 
 %% Initialize QSM
 
-filename = "example-data/generated_tree.mat";
+% Resolve path to generated_tree.mat relative to this file
+script_dir = fileparts(mfilename('fullpath'));
+filename = fullfile(script_dir, 'example-data', 'generated_tree.mat');
 QSM = importdata(filename);
+% Unwrap if saved as struct with field 'qsm'
+if isstruct(QSM) && isfield(QSM, 'qsm')
+    QSM = QSM.qsm;
+end
 
 %% Initialize leaf base geometry
 
