@@ -40,7 +40,15 @@ def csv_to_las(csv_path, las_path):
         y = df['y'].values
         z = df['z'].values
         instance_id = df['SemClassID'].values.astype(np.int32)
-        semantic_class = df['MaterialID'].values.astype(np.int32)
+        semantic_class_raw = df['MaterialID'].values.astype(np.int32)
+        
+        # Map semantic classes: 1->0, 2->1, 10->2
+        def map_semantic_class(original_class):
+            mapping = {1: 0, 2: 1, 10: 2}
+            return mapping.get(original_class, original_class)
+        
+        # Apply mapping to all semantic classes
+        semantic_class = np.array([map_semantic_class(cls) for cls in semantic_class_raw], dtype=np.int32)
         
         print(f"Processing {len(df)} points...")
         
@@ -49,7 +57,7 @@ def csv_to_las(csv_path, las_path):
         header.scales = [0.001, 0.001, 0.001] 
 
         header.add_extra_dim(laspy.ExtraBytesParams(name="instance_id", type=np.int32))
-        header.add_extra_dim(laspy.ExtraBytesParams(name="semantic_class", type=np.int32))
+        # header.add_extra_dim(laspy.ExtraBytesParams(name="semantic_class", type=np.int32))
 
         las = laspy.LasData(header)
         las.x = x
@@ -57,7 +65,7 @@ def csv_to_las(csv_path, las_path):
         las.z = z
         
         las.instance_id = instance_id
-        las.semantic_class = semantic_class
+        las.classification = semantic_class
         
         print(f"Writing LAS file: {las_path}")
         las.write(las_path)
@@ -80,25 +88,60 @@ def csv_to_las(csv_path, las_path):
 
 def main():
     """Main function to handle command line arguments and execute conversion."""
-    if len(sys.argv) != 3:
-        print("Usage: python blender_scan_to_pointtorch_dataset.py input.csv output.las")
-        print("\nArguments:")
-        print("  input.csv  - Path to input CSV file")
-        print("  output.las - Path to output LAS file")
-        sys.exit(1)
     
-    csv_path = sys.argv[1]
-    las_path = sys.argv[2]
-    
-    if not Path(csv_path).exists():
-        print(f"Error: Input file '{csv_path}' does not exist")
+    # Hardcoded file paths - modify these as needed
+    DEFAULT_CSV_PATHS = [
+        r"C:\Users\anton\Documents\Uni\Spatial_Data_Analysis\datasets\combined_plot1.csv",
+        r"C:\Users\anton\Documents\Uni\Spatial_Data_Analysis\datasets\combined_plot2.csv",
+        r"C:\Users\anton\Documents\Uni\Spatial_Data_Analysis\datasets\combined_plot3.csv",
+        r"C:\Users\anton\Documents\Uni\Spatial_Data_Analysis\datasets\combined_plot4.csv",
+        r"C:\Users\anton\Documents\Uni\Spatial_Data_Analysis\datasets\combined_plot5.csv",
+    ]
+    DEFAULT_LAS_PATHS = [
+        r"C:\Users\anton\Documents\Uni\Spatial_Data_Analysis\datasets\finished_plot1.las",
+        r"C:\Users\anton\Documents\Uni\Spatial_Data_Analysis\datasets\finished_plot2.las",
+        r"C:\Users\anton\Documents\Uni\Spatial_Data_Analysis\datasets\finished_plot3.las",
+        r"C:\Users\anton\Documents\Uni\Spatial_Data_Analysis\datasets\finished_plot4.las",
+        r"C:\Users\anton\Documents\Uni\Spatial_Data_Analysis\datasets\finished_plot5.las",
+    ]
+
+    # Check if command line arguments are provided
+    if len(sys.argv) == 3:
+        # Use command line arguments
+        csv_paths = [sys.argv[1]]
+        las_paths = [sys.argv[2]]
+        print("Using command line arguments:")
+    elif len(sys.argv) == 1:
+        # Use hardcoded paths
+        csv_paths = DEFAULT_CSV_PATHS
+        las_paths = DEFAULT_LAS_PATHS   
+        print("Using hardcoded file paths:")
+    else:
+        print("Usage: python blender_scan_to_pointtorch_dataset.py [input.csv output.las]")
+        print("\nOptions:")
+        print("  1. Run with no arguments to use hardcoded paths:")
+        print(f"     CSV: {DEFAULT_CSV_PATHS}")
+        print(f"     LAS: {DEFAULT_LAS_PATHS}")
+        print("  2. Run with two arguments:")
+        print("     python script.py input.csv output.las")
         sys.exit(1)
+
+    print(f"  Input CSV: {csv_paths}")
+    print(f"  Output LAS: {las_paths}")
+    print()
+
+    for csv_path, las_path in zip(csv_paths, las_paths):
+        if not Path(csv_path).exists():
+            print(f"Error: Input file '{csv_path}' does not exist")
+            sys.exit(1)
     
     output_dir = Path(las_path).parent
     if output_dir and not output_dir.exists():
         output_dir.mkdir(parents=True, exist_ok=True)
     
-    csv_to_las(csv_path, las_path)
+    for csv_path, las_path in zip(csv_paths, las_paths):
+        print(f"Converting {csv_path} to {las_path}")
+        csv_to_las(csv_path, las_path)
 
 
 if __name__ == "__main__":

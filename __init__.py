@@ -13,7 +13,7 @@ import numpy as np
 import bpy
 from mathutils import Vector,Euler,Matrix,Quaternion
 from .voxel_grid import VoxelGrid
-from .tree_mesh_generation import SCATree
+from .tree_mesh_generation import SCATree, force_blender_cleanup
 import bmesh
 
 bl_info = {
@@ -33,7 +33,7 @@ class TreeConfiguration(bpy.types.PropertyGroup):
       name="Tree Configuration File", 
       description="Path to the file", 
       subtype='FILE_PATH',
-      default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data Analysis\\Procedual_Blender_Forest_Simulator\\tree_configs\\sphere_tree.json"  
+      default="C:\\Users\\anton\\Documents\\Uni\\Spatial_Data_Analysis\\Procedual_Blender_Forest_Simulator\\tree_configs\\sphere_tree.json"  
     )
     weight: bpy.props.FloatProperty(
       name="Weight",
@@ -51,7 +51,7 @@ class ForestGenerator(bpy.types.Operator):
     name="Surface", 
     description="Path to the file", 
     subtype='FILE_PATH',
-    default="C:\\Users\\anton\\Documents\\Uni\\Spatial Data Analysis\\surface.csv"
+    default="C:\\Users\\anton\\Documents\\Uni\\Spatial_Data_Analysis\\Procedual_Blender_Forest_Simulator\\surface.csv"
   )
   treeConfigurationCount: bpy.props.IntProperty(
     name="Number of tree configurations",
@@ -245,6 +245,10 @@ class ForestGenerator(bpy.types.Operator):
       elapsed_time = end_time - start_time
       total_time += elapsed_time
       print(f"{i+1} out of {len(tree_meshes)} trees generated at {tree_mesh.location} with configuration index {tree_configuration_indices[i]} in {elapsed_time:.2f} seconds")
+
+      # Force cleanup every other tree to prevent performance degradation
+      if (i + 1) % 2 == 0:
+        force_blender_cleanup()
     
     print(f"Total time for forest generation: {total_time:.2f} seconds")
     self.updateForest = False

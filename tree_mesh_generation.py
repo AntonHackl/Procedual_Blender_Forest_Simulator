@@ -304,6 +304,61 @@ def pruneTree(tree, generation):
     #print()
   return nbp, i2p
   
+def force_blender_cleanup():
+  """
+  Force Blender to clean up unused data and optimize performance.
+  Call this periodically when generating many trees.
+  """
+  print("Forcing Blender cleanup...")
+  
+  # Clear undo history to free memory (correct operator for Blender 4.5)
+  try:
+    bpy.ops.ed.undo_history_clear()
+  except:
+    # Fallback if the operator doesn't exist in this Blender version
+    try:
+      bpy.ops.wm.memory_statistics()  # This can help trigger cleanup
+    except:
+      pass
+  
+  # Remove all orphaned data blocks
+  try:
+    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+  except:
+    # Fallback for older Blender versions
+    try:
+      bpy.ops.outliner.orphans_purge()
+    except:
+      pass
+  
+  # Clear cached data manually
+  meshes_removed = 0
+  materials_removed = 0
+  
+  # Remove unused meshes
+  for mesh in list(bpy.data.meshes):
+    if mesh.users == 0:
+      bpy.data.meshes.remove(mesh)
+      meshes_removed += 1
+  
+  # Remove unused materials  
+  for material in list(bpy.data.materials):
+    if material.users == 0:
+      bpy.data.materials.remove(material)
+      materials_removed += 1
+  
+  # Update all view layers
+  for scene in bpy.data.scenes:
+    for view_layer in scene.view_layers:
+      view_layer.update()
+  
+  # Force garbage collection on Python side
+  import gc
+  gc.collect()
+  
+  print(f"Cleanup completed - removed {meshes_removed} meshes, {materials_removed} materials")
+  print(f"Remaining: {len(bpy.data.meshes)} meshes, {len(bpy.data.objects)} objects")
+
 def createGeometry(tree, power=0.5, scale=0.01,
   nomodifiers=True, skinmethod='NATIVE', subsurface=False,
   bleaf=4.0,
@@ -458,17 +513,94 @@ def createGeometry(tree, power=0.5, scale=0.01,
       obj_leaves2.select_set(True)
       bpy.ops.object.duplicates_make_real()
       
+      # Collect all leaf objects and their world matrices
+      leaf_objects = []
+      leaf_matrices = []
+      
       for leaf_idx, obj in enumerate(bpy.context.selected_objects):
         if obj != obj_leaves2 and obj != obj_processed:
+          leaf_objects.append(obj)
+          leaf_matrices.append(obj.matrix_world.copy())
+      
+      # Create a combined mesh for all leaves using bmesh for better performance
+      if leaf_objects:
+        # Create bmesh instance for efficient mesh operations
+        bm = bmesh.new()
+        
+        # Get material from first leaf object
+        leaf_material = None
+        if leaf_objects[0].data.materials:
+          leaf_material = leaf_objects[0].data.materials[0]
+        
+        # Pre-calculate parent inverse matrix once
+        parent_inverse = obj_processed.matrix_world.inverted()
+        
+        # Combine all leaf meshes using bmesh
+        for i, obj in enumerate(leaf_objects):
+          # Get the world matrix for this object
+          world_matrix = leaf_matrices[i]
           
-          obj["class_id"] = class_id
-          obj.name = f"Leaf_{obj['class_id']}_{leaf_idx}"
+          # Calculate combined transformation matrix
+          transform_matrix = parent_inverse @ world_matrix
           
-          world_matrix = obj.matrix_world.copy()
+          # Create temporary bmesh from object mesh
+          temp_bm = bmesh.new()
+          temp_bm.from_mesh(obj.data)
           
-          obj.parent = obj_processed
+          # Transform all vertices at once
+          temp_bm.transform(transform_matrix)
           
-          obj.matrix_world = world_matrix
+          # Merge into main bmesh using bmesh operations
+          for vert in temp_bm.verts:
+            bm.verts.new(vert.co)
+          
+          bm.verts.ensure_lookup_table()
+          vert_offset = len(bm.verts) - len(temp_bm.verts)
+          
+          for face in temp_bm.faces:
+            face_verts = [bm.verts[vert_offset + v.index] for v in face.verts]
+            bm.faces.new(face_verts)
+          
+          temp_bm.free()
+        
+        # Create final mesh from bmesh
+        combined_mesh = bpy.data.meshes.new(f"CombinedLeaves_{class_id}")
+        bm.to_mesh(combined_mesh)
+        bm.free()
+        
+        # Create combined object
+        combined_obj = bpy.data.objects.new(f"CombinedLeaves_{class_id}", combined_mesh)
+        bpy.context.collection.objects.link(combined_obj)
+        
+        # Assign materials efficiently
+        if leaf_material:
+          combined_mesh.materials.append(leaf_material)
+        
+        # Set up the combined object
+        combined_obj["class_id"] = class_id
+        combined_obj.parent = obj_processed
+        
+        # Remove individual leaf objects in batch with proper cleanup
+        print(f"Cleaning up {len(leaf_objects)} leaf objects...")
+        
+        # Collect mesh data before removing objects
+        meshes_to_remove = []
+        for obj in leaf_objects:
+          if obj.data and obj.data.users == 1:  # Only collect if this is the only user
+            meshes_to_remove.append(obj.data)
+        
+        # Remove objects first
+        for obj in leaf_objects:
+          bpy.data.objects.remove(obj, do_unlink=True)
+        
+        # Force cleanup of unused mesh data
+        for mesh_data in meshes_to_remove:
+          if mesh_data.users == 0:
+            bpy.data.meshes.remove(mesh_data)
+        
+        # Force garbage collection and update
+        bpy.context.view_layer.update()
+        print(f"Cleaned up {len(meshes_to_remove)} mesh data blocks")
       
       bpy.context.view_layer.objects.active = obj_leaves2
       bpy.ops.object.particle_system_remove()
@@ -484,17 +616,80 @@ def createGeometry(tree, power=0.5, scale=0.01,
       obj_leaves2.select_set(True)
       bpy.ops.object.duplicates_make_real()
       
+      # Collect all object instances and their world matrices
+      object_instances = []
+      object_matrices = []
+      
       for obj_idx, obj in enumerate(bpy.context.selected_objects):
         if obj != obj_leaves2 and obj != obj_processed:
+          object_instances.append(obj)
+          object_matrices.append(obj.matrix_world.copy())
+      
+      # Create a combined mesh for all object instances using bmesh for better performance
+      if object_instances:
+        # Create bmesh instance for efficient mesh operations
+        bm = bmesh.new()
+        
+        # Get material from first object instance
+        object_material = None
+        if object_instances[0].data.materials:
+          object_material = object_instances[0].data.materials[0]
+        
+        # Pre-calculate parent inverse matrix once
+        parent_inverse = obj_processed.matrix_world.inverted()
+        
+        # Combine all object meshes using bmesh
+        for i, obj in enumerate(object_instances):
+          # Get the world matrix for this object
+          world_matrix = object_matrices[i]
           
-          obj["class_id"] = class_id
-          obj.name = f"Object_{obj['class_id']}_{obj_idx}"
+          # Calculate combined transformation matrix
+          transform_matrix = parent_inverse @ world_matrix
           
-          world_matrix = obj.matrix_world.copy()
+          # Create temporary bmesh from object mesh
+          temp_bm = bmesh.new()
+          temp_bm.from_mesh(obj.data)
           
-          obj.parent = obj_processed
+          # Transform all vertices at once
+          temp_bm.transform(transform_matrix)
           
-          obj.matrix_world = world_matrix
+          # Merge into main bmesh using bmesh operations
+          for vert in temp_bm.verts:
+            bm.verts.new(vert.co)
+          
+          bm.verts.ensure_lookup_table()
+          vert_offset = len(bm.verts) - len(temp_bm.verts)
+          
+          for face in temp_bm.faces:
+            face_verts = [bm.verts[vert_offset + v.index] for v in face.verts]
+            bm.faces.new(face_verts)
+          
+          temp_bm.free()
+        
+        # Create final mesh from bmesh
+        combined_mesh = bpy.data.meshes.new(f"CombinedObjects_{class_id}")
+        bm.to_mesh(combined_mesh)
+        bm.free()
+        
+        # Create combined object
+        combined_obj = bpy.data.objects.new(f"CombinedObjects_{class_id}", combined_mesh)
+        bpy.context.collection.objects.link(combined_obj)
+        
+        # Assign materials efficiently
+        if object_material:
+          combined_mesh.materials.append(object_material)
+        
+        # Set up the combined object
+        combined_obj["class_id"] = class_id
+        combined_obj.parent = obj_processed
+        
+        # Remove individual object instances in batch
+        objects_to_remove = [obj.data for obj in object_instances]
+        for obj in object_instances:
+          bpy.data.objects.remove(obj, do_unlink=True)
+        # Clean up unused mesh data
+        for mesh in objects_to_remove:
+          bpy.data.meshes.remove(mesh)
       
       bpy.context.view_layer.objects.active = obj_leaves2
       bpy.ops.object.particle_system_remove()
