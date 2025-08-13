@@ -204,12 +204,9 @@ else
     parpool
 end
 
-% Initialize a waitbar for the parfor loop
-dq = parallel.pool.DataQueue;
-wb = waitbar(0/totalNodes,num2str(0/totalNodes),...
-             'Name','Progress bar');
-wb.UserData = [0 totalNodes];
-afterEach(dq,@(varargin) waitbarUpdate(wb))
+% Progress UI removed for headless/non-visual use
+% Initialize a counter instead
+completedCount = 0;
 
 % Create Leaves objects for the library
 parfor iNode = 1:totalNodes
@@ -244,7 +241,7 @@ parfor iNode = 1:totalNodes
     maxLeafSize = max(max(leafScaleFactors)) ...
                   *max(LeavesInit.base_dimensions);
 
-
+    
     % Attach the leaves to the cylinder with leaf orientation
     % distribution
     [leafDir,leafNormal,petioleStart,petioleEnd] = fun_leaf_orientation(...
@@ -258,7 +255,7 @@ parfor iNode = 1:totalNodes
         PetioleDirectionDistribution, ...
         Phyllotaxis ...
         );
-
+    
     % Average leaf area
     avgAr = mean(LeavesInit.base_area*(leafScaleFactors(:,1).^2));
     % Estimate on total leaf count
@@ -300,13 +297,11 @@ parfor iNode = 1:totalNodes
     LeavesInit = [];
     Leaves = [];
 
-    % Update waitbar
-    send(dq,iNode);
+    % Progress update removed
 
 end
 
-% Close waitbar
-close(wb);
+% Progress UI removed
 
 % Closing the parallel pool
 delete(gcp('nocreate'));
@@ -314,16 +309,8 @@ delete(gcp('nocreate'));
 % Assigning the leaf object struct to the leaf cylinder library
 LeafCylLib.LeafObjects = LeafObjects;
 
-% Function for waitbar update of parfor loop
-    function waitbarUpdate(wb)
-        iters = wb.UserData;
-        iters(1) = iters(1) + 1;
-        waitbar(iters(1)/iters(2),wb, ...
-                sprintf('Leaf cylinder generation in progress\n%d/%d', ...
-                iters(1),iters(2)));
-        wb.UserData = iters;
-    end
+% Progress UI removed
 
 end
-
-
+    
+    

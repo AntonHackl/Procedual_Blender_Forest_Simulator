@@ -5,7 +5,7 @@ function run_leaf_generation_with_params(leaf_params)
 % Clear all variables from the workspace and close all open figures
 % But preserve the leaf_params variable passed from Python
 clear QSM Leaves QSMbc TargetDistributions LeafProperties totalLeafArea precision hLeaf hQSM
-close all
+% close all - DISABLED FOR BLENDER INTEGRATION
 
 % Add the current directory and all the subdirectories to search path
 addpath(genpath(pwd))
@@ -98,8 +98,8 @@ else
     TargetDistributions.fun_pLSD = @(h,d,c) [0.008 0.00025^2];  % Current: Larger leaves
 end
 
-% Visualize the target distributions
-visualize_target_distributions(TargetDistributions,[0 0 0]);
+% Visualization removed
+% visualize_target_distributions(TargetDistributions,[0 0 0]);
 
 %% Set the target leaf area using parameter from Python
 
@@ -122,44 +122,36 @@ end
 [Leaves,QSMbc] = generate_foliage_qsm_direct(QSM,TargetDistributions, ...
   LeafProperties,totalLeafArea);
 
-%% Visualize the generated foliage with the QSM
+%% Visualize the generated foliage with the QSM - DISABLED FOR BLENDER INTEGRATION
 
-% Initialize figure
-figure, clf, hold on
+% Visualization removed
+% figure, clf, hold on
 
 % Plot leaves
-hLeaf = Leaves.plot_leaves();
+% hLeaf = Leaves.plot_leaves();
 
 % Set leaf color
-set(hLeaf,'FaceColor',[0 150 0]./255,'EdgeColor','none');
+% set(hLeaf,'FaceColor',[0 150 0]./255,'EdgeColor','none');
 
 % Plot QSM
-hQSM = QSMbc.plot_model();
+% hQSM = QSMbc.plot_model();
 
 % Set bark color
-set(hQSM,'FaceColor',[150 100 50]./255,'EdgeColor','none');
+% set(hQSM,'FaceColor',[150 100 50]./255,'EdgeColor','none');
 
-% Set figure properties
-hold off;
-axis equal;
-xlabel('x')
-ylabel('y')
-zlabel('z')
+% Visualization removed
 
-%% Plot LADD marginal distributions
+%% Plot LADD marginal distributions - DISABLED FOR BLENDER INTEGRATION
 
-plot_LADD_h_QSM(QSMbc,Leaves,TargetDistributions);
-plot_LADD_d_QSM(QSMbc,Leaves,TargetDistributions);
-plot_LADD_c_QSM(QSMbc,Leaves,TargetDistributions);
+% Visualization removed
 
-%% Plot LOD marginal distributions
+%% Plot LOD marginal distributions - DISABLED FOR BLENDER INTEGRATION
 
-plot_LOD_inc_QSM(QSMbc,Leaves);
-plot_LOD_az_QSM(QSMbc,Leaves);
+% Visualization removed
 
-%% Plot LSD
+%% Plot LSD - DISABLED FOR BLENDER INTEGRATION
 
-plot_LSD_QSM(QSMbc,Leaves);
+% Visualization removed
 
 %% Export leaves and QSM in OBJ-format
 

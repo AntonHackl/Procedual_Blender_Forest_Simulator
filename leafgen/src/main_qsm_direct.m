@@ -58,8 +58,7 @@ TargetDistributions.dTypeLSD = 'normal';
 TargetDistributions.fun_pLSD = @(h,d,c) [0.008 0.00025^2];  % Restored to original parameters - larger leaves
 % TargetDistributions.fun_pLSD = @(h,d,c) [0.002 0.0001^2];  % Previous reduced size
 
-% Visualize the target distributions
-visualize_target_distributions(TargetDistributions,[0 0 0]);
+% Visualization removed
 
 %% Set the target leaf area
 
@@ -73,42 +72,19 @@ totalLeafArea = 20;  % Reduced from 50 to 20 for less foliage
 
 %% Visualize the generated foliage with the QSM
 
-% Initialize figure
-figure, clf, hold on
-
-% Plot leaves
-hLeaf = Leaves.plot_leaves();
-
-% Set leaf color
-set(hLeaf,'FaceColor',[0 150 0]./255,'EdgeColor','none');
-
-% Plot QSM
-hQSM = QSMbc.plot_model();
-
-% Set bark color
-set(hQSM,'FaceColor',[150 100 50]./255,'EdgeColor','none');
-
-% Set figure properties
-hold off;
-axis equal;
-xlabel('x')
-ylabel('y')
-zlabel('z')
+% Visualization removed
 
 %% Plot LADD marginal distributions
 
-plot_LADD_h_QSM(QSMbc,Leaves,TargetDistributions);
-plot_LADD_d_QSM(QSMbc,Leaves,TargetDistributions);
-plot_LADD_c_QSM(QSMbc,Leaves,TargetDistributions);
+% Visualization removed
 
 %% Plot LOD marginal distributions
 
-plot_LOD_inc_QSM(QSMbc,Leaves);
-plot_LOD_az_QSM(QSMbc,Leaves);
+% Visualization removed
 
 %% Plot LSD
 
-plot_LSD_QSM(QSMbc,Leaves);
+% Visualization removed
 
 %% Export leaves and QSM in OBJ-format
 

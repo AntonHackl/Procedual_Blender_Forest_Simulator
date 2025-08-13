@@ -101,44 +101,13 @@ totalLeafArea = 50;
                                           TargetLADD,ParamFunctions, ...
                                           totalLeafArea);
 
-%% Visualize the QSM with generated foliage
+%% Visualization removed
 
-% Initialize figure
-figure(1), clf, hold on
+%% Visualization removed
 
-% Plot leaves
-hLeaf = Leaves.plot_leaves();
+%% Visualization removed
 
-% Set leaf color
-set(hLeaf,'FaceColor',[0 150 0]./255,'EdgeColor','none');
-
-% Plot QSM
-hQSM = QSMbc.plot_model();
-
-% Set bark color
-set(hQSM,'FaceColor',[150 100 50]./255,'EdgeColor','none');
-
-% Set figure properties
-hold off;
-axis equal;
-xlabel('x')
-ylabel('y')
-zlabel('z')
-
-%% Plot LADD marginal distributions
-
-plot_LADD_h_QSM(QSMbc,Leaves,TargetLADD);
-plot_LADD_d_QSM(QSMbc,Leaves,TargetLADD);
-plot_LADD_c_QSM(QSMbc,Leaves,TargetLADD);
-
-%% Plot LOD marginal distributions
-
-plot_LOD_inc_QSM(QSMbc,Leaves);
-plot_LOD_az_QSM(QSMbc,Leaves);
-
-%% Plot LSD
-
-plot_LSD_QSM(QSMbc,Leaves);
+%% Visualization removed
 
 %% Export leaves and QSM in OBJ-format
 

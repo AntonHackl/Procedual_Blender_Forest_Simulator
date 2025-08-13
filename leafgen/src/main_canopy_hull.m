@@ -50,8 +50,7 @@ TargetDistributions.fun_pLODaz = @(h,d,c) [];
 TargetDistributions.dTypeLSD = 'normal';
 TargetDistributions.fun_pLSD = @(h,d,c) [0.004 0.00025^2];
 
-% Visualize the target distributions
-visualize_target_distributions(TargetDistributions,[0 0 0]);
+% Visualize the target distributions (removed for non-plotting build)
 
 %% Define stem location
 
@@ -80,76 +79,42 @@ totalLeafArea = 25;
 
 %% Visualize the foliage
 
-% Initialize figure
-figure, clf
-tiledlayout(1,2)
+% Visualization removed
 
 % Initialize first subplot
 ax1 = nexttile;
 
-% Plot point cloud
 pc = aShape.Points;
-plot3(pc(:,1),pc(:,2),pc(:,3),'k.','MarkerSize',1)
 
-% Set subfigure properties
-hold on, grid on, axis equal
-xlabel('x')
-ylabel('y')
-zlabel('z')
+% Visualization removed
 
-% Plot alpha shape
-plot(aShape,'FaceColor','m','FaceAlpha',0.2)
+% Visualization removed
 
-% Plot the defined stem
-if exist('stemCoordinates','var')
-    plot3(stemCoordinates(:,1),stemCoordinates(:,2), ...
-        stemCoordinates(:,3),'c-','LineWidth',3);
-else
-    pcTop = max(pc(:,3));
-    plot3([0 0],[0 0],[0 pcTop],'c-','LineWidth',3)
-end
+% Visualization removed
 
-% Save the coordinate limits
-xl = xlim; 
-yl = ylim; 
-zl = zlim;
+% Visualization removed
 
-% Initialize second subplot
-ax2 = nexttile;
+% Visualization removed
 
-% Plot leaves
-hLeaf = Leaves.plot_leaves();
+% Visualization removed
 
-% Set leaf color
-set(hLeaf,'FaceColor',[0,150,0]./255,'EdgeColor','none');
+% Visualization removed
 
-% Set subfigure properties
-grid on, axis equal, xlim(ax2,xl), ylim(ax2,yl), zlim(ax2,zl)
-xlabel('x')
-ylabel('y')
-zlabel('z')
+% Visualization removed
 
-% Link the point of view for the subfigures
-Link = linkprop([ax1, ax2],{'CameraUpVector', 'CameraPosition', ...
-    'CameraTarget', 'XLim', 'YLim', 'ZLim'});
-setappdata(gcf, 'StoreTheLink', Link);
+% Visualization removed
 
 %% Plot LADD marginal distributions
 
-plot_LADD_h_CH(aShape,Leaves,TargetDistributions);
-plot_LADD_d_CH(aShape,Leaves,TargetDistributions, ...
-               'StemCoordinates',stemCoordinates);
-plot_LADD_c_CH(aShape,Leaves,TargetDistributions, ...
-               'StemCoordinates',stemCoordinates);
+% Visualization removed
 
 %% Plot LOD marginal distributions
 
-plot_LOD_inc_CH(aShape,Leaves,'StemCoordinates',stemCoordinates);
-plot_LOD_az_CH(aShape,Leaves,'StemCoordinates',stemCoordinates);
+% Visualization removed
 
 %% Plot LSD
 
-plot_LSD_CH(aShape,Leaves,'StemCoordinates',stemCoordinates);
+% Visualization removed
 
 %% Export leaves in OBJ-format
 

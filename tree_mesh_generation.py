@@ -24,8 +24,6 @@ import sys
 from collections import defaultdict
 from typing import Dict, List
 
-from .endpoint_sampling import sample_mesh_group_surface_points
-
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
 
 bl_info = {
@@ -60,7 +58,7 @@ from .timer import Timer
 from .utils import (create_inverse_graph, get_vertex_group,
                     load_materials_from_bundled_lib,
                     load_particlesettings_from_bundled_lib)
-from .voxel_grid import VoxelGrid
+from .edge_index import EdgeIndex
 
 
 def availableGroups(self, context):
@@ -812,28 +810,17 @@ class SCATree():
         self.apicalcontrolfalloff = apicalcontrolfalloff
         self.apicalcontroltiming = apicalcontroltiming
 
-    def create_tree(self, context):
-        # if not self.updateTree:
-        #     return {'PASS_THROUGH'}
-
-
-        # we load this library matrial unconditionally, i.e. each time we execute() which sounds like a waste
-        # but library loads get undone as well if we redo the operator ...
+    def _prepare_common(self, context, edge_index: EdgeIndex):
         global barkmaterials
         barkmaterials = load_materials_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'Bark')
 
-        #bpy.types.MESH_OT_sca_tree.barkmaterials = barkmaterials
-
-        # we *must* execute this every time because this operator has UNDO as attribute so anything that's changed will be reverted on each execution. If we initialize this only once, the operator crashes Blender because it will refer to stale data.
         particlesettings = load_particlesettings_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'LeafEmitter')
         bpy.types.MESH_OT_forest_generator.particlesettings = particlesettings
 
         self.leafParticles = availableParticleSettings(self, context, particlesettings)[9]
 
-        timings=Timer()
+        timings = Timer()
 
-        # necessary otherwise ray casts toward these objects may fail. However if nothing is selected, we get a runtime error ...
-        # and if an object is selected that has no edit mode (e.g. an empty) we get a type error
         try:
             bpy.ops.object.mode_set(mode='EDIT', toggle=False)
             bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
@@ -853,13 +840,16 @@ class SCATree():
 
         startingpoints = []
         if self.useTrunkGroup:
-            if self.trunkGroup in bpy.data.collections :
-                for ob in bpy.data.collection[self.trunkGroup].objects :
+            if self.trunkGroup in bpy.data.collections:
+                for ob in bpy.data.collection[self.trunkGroup].objects:
                     p = ob.location - context.scene.cursor.location
-                    startingpoints.append(Branchpoint(p,None, 0))
+                    startingpoints.append(Branchpoint(p, None, 0))
 
-        timings.add('scastart')
-        sca = SCA(NBP = self.maxIterations,
+        # register per-tree min edge distance
+        edge_index.set_tree_min_distance(self.class_id, 0.8)
+
+        origin_loc = bpy.context.scene.cursor.location
+        sca = SCA(NBP=self.maxIterations,
             NENDPOINTS=self.numberOfEndpoints,
             d=self.internodeLength,
             KILLDIST=self.killDistance,
@@ -871,12 +861,39 @@ class SCATree():
             startingpoints=startingpoints,
             apicalcontrol=self.apicalcontrol,
             apicalcontrolfalloff=self.apicalcontrolfalloff,
-            apicaltiming=self.apicalcontroltiming
+            apicaltiming=self.apicalcontroltiming,
+            tree_id=self.class_id,
+            edge_index=edge_index,
+            origin=(float(origin_loc.x), float(origin_loc.y), float(origin_loc.z))
         )
+
+        return sca, particlesettings, timings
+
+    def prepare_growth(self, context, edge_index):
+        timings = Timer()
+        timings.add('scastart')
+        sca, particlesettings, base_timings = self._prepare_common(context, edge_index)
         timings.add('sca')
 
-        sca.iterate(newendpointsper1000=self.newEndPointsPer1000,maxtime=self.maxTime)
-        timings.add('iterate')
+        # initialize step-wise growth
+        sca.begin_growth(newendpointsper1000=self.newEndPointsPer1000, maxtime=self.maxTime)
+
+        self._prepared = {
+            'sca': sca,
+            'particlesettings': particlesettings,
+            'timings': timings,
+        }
+        return sca
+
+    def finalize_tree(self, context):
+        if not hasattr(self, '_prepared'):
+            return None
+
+        sca = self._prepared['sca']
+        particlesettings = self._prepared['particlesettings']
+        timings = self._prepared['timings']
+
+        sca.finalize_after_growth()
 
         if self.showMarkers:
             mesh = createMarkers(sca, self.markerScale)
@@ -886,7 +903,7 @@ class SCATree():
 
         self.leafParticles = next((k for k in particlesettings.keys() if k.startswith('LeavesAbstractSummer')), 'None')
 
-        obj_new=createGeometry(sca,self.power,self.scale,
+        obj_new = createGeometry(sca, self.power, self.scale,
             self.noModifiers, self.skinMethod, self.subSurface,
             self.bLeaf,
             self.leafParticles,
@@ -902,9 +919,6 @@ class SCATree():
         if obj_new is None:
             return None
 
-        # bpy.ops.object.material_slot_add()
-        # obj_new.material_slots[-1].material = barkmaterials[self.barkMaterial]
-
         if self.showMarkers:
             obj_markers.parent = obj_new
 
@@ -915,5 +929,6 @@ class SCATree():
             print(timings)
 
         self.timings = timings
-
         return obj_new
+
+    # removed legacy single-tree generation

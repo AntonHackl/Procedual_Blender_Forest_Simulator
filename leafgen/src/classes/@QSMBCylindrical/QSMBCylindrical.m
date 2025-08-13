@@ -1186,14 +1186,7 @@ classdef QSMBCylindrical < QSMB
                 
                 % Debug: plot cylinder coordinate system axis vectors.
                 if ob.debug
-                    figure(2);
-                    conf = [1 4];
-                    TwigFront = ax(iTwig,:);
-                    TwigUp = TwigUpBase;
-                    TwigSide = TwigSideBase;
-                    plot_axes(conf,1,TwigStart(iTwig,:),...
-                              TwigUp,TwigSide,TwigFront);
-                    %-
+                    % plotting removed in non-visual build
                 end
                 
                 % Rotation matrix to rotate around cylinder axis.
@@ -1212,9 +1205,7 @@ classdef QSMBCylindrical < QSMB
                 %-
                 
                 if ob.debug
-                    plot_axes(conf,2,TwigStart(iTwig,:),...
-                              TwigUp,TwigSide,TwigFront);
-                    %-
+                    % plotting removed in non-visual build
                 end
                 
                 % Elevation parameter has to be inverted if the twig is
@@ -1235,28 +1226,12 @@ classdef QSMBCylindrical < QSMB
                 
                 % Debug: plot updated coordinate system.
                 if ob.debug
-                    plot_axes(conf,3,TwigStart(iTwig,:),...
-                              TwigUp,TwigSide,TwigFront);
-                    %-
+                    % plotting removed in non-visual build
                 end
                 
                 % Debug: plot twig direction unit vector.
                 if ob.debug
-                    
-                    colors = eye(3);
-                    E = [TwigUp; TwigSide; TwigFront];
-                    
-                    figure(2);
-                    for i = 1:3
-                        plott([TwigStart(iTwig,:); ...
-                               TwigStart(iTwig,:)+E(i,:)],...
-                              '-','Color',colors(i,:));
-                        %-
-                        hold on;
-                    end
-                    hold off;
-                    axis equal;
-                    
+                    % plotting removed in non-visual build
                 end
 
                 % Twig is attached to the envelope.
@@ -2851,20 +2826,5 @@ function TwigParam = default_twig_param_dist(sp, ax, h, r, is_last, len)
 end
 
 function plot_axes(config, index, Origin, TwigUp,TwigSide,TwigFront)
-% Function to plot coordinate system axis vectors. Used for debugging.
-
-    colors = eye(3);
-    E = [TwigUp; TwigSide; TwigFront];
-
-    subplot(config(1),config(2),index);
-    
-    for i = 1:3
-        plott([Origin; Origin+E(i,:)],'-','Color',colors(i,:));
-        hold on;
-    end
-    
-    hold off;
-    axis equal;
-    legend({'up','side','front'});
-
+% plotting helper removed in non-visual build
 end

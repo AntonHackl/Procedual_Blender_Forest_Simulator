@@ -3,7 +3,9 @@ from functools import partial
 from math import sqrt
 from time import time
 from array import array
-from typing import Callable, Union
+from typing import Callable, Tuple, Union, Optional
+from dataclasses import dataclass
+from .edge_index import EdgeIndex
 
 from mathutils import Vector
 
@@ -56,6 +58,15 @@ class Branchpoint:
     def __str__(self):
         return str(self.v)+" "+str(self.parent)
         
+@dataclass
+class GrowthState:
+  starttime: float
+  niterations: float
+  rate: float
+  t: float
+  maxtime: float
+  finished: bool
+
 def sphere(r,p):
     r2 = r*r
     while True:
@@ -67,8 +78,24 @@ def sphere(r,p):
             
 class SCA:
 
-  def __init__(self,NENDPOINTS = 100,d = 0.3,NBP = 2000, KILLDIST = 5, INFLUENCE = 15, SEED=42, volume: Union[Callable[[], Vector], None] = None, TROPISM=0.0, exclude=lambda p: False,
-        startingpoints=[], apicalcontrol=0, apicalcontrolfalloff=1, apicaltiming=0):
+  def __init__(self,
+        NENDPOINTS: int = 100,
+        d: float = 0.3,
+        NBP: int = 2000,
+        KILLDIST: float = 5,
+        INFLUENCE: float = 15,
+        SEED: int = 42,
+        volume: Union[Callable[[], Vector], None] = None,
+        TROPISM: float = 0.0,
+        exclude: Callable[[Vector], bool] = lambda p: False,
+        startingpoints: list = [],
+        apicalcontrol: float = 0,
+        apicalcontrolfalloff: float = 1,
+        apicaltiming: int = 0,
+        tree_id: int = 0,
+        edge_index: Optional[EdgeIndex] = None,
+        origin: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+      ):
     if volume is None:
        raise ValueError("Volume function is required")
     
@@ -98,6 +125,9 @@ class SCA:
     
     self.volumepoint=volume
     self.exclude=exclude
+    self.tree_id: int = int(tree_id)
+    self.edge_index = edge_index
+    self.origin: Tuple[float, float, float] = (float(origin[0]), float(origin[1]), float(origin[2]))
 
     # result arrays, filled *after* iterations
     self.branchpoints = []
@@ -115,6 +145,9 @@ class SCA:
         self.bpc=array('i')
         for bp in startingpoints:
             self.addBranchPoint(bp.v, -1, 0)
+
+    # internal state for step-wise growth
+    self._growth_state: Optional[GrowthState] = None
 
   def addBranchPoint(self, bp, pi, generation):
     self.bp.extend(tuple(bp))# even if it is passed as a vector we turn it in to a tuple to ease a later coversion to numpy
@@ -206,7 +239,25 @@ class SCA:
       newbpps.append(bpi)
     for newbp,newbpp in zip(newbps,newbpps):
       if not self.exclude(Vector(newbp)):
+        # optional inter-tree edge proximity validation
+        if self.edge_index is not None and newbpp is not None:
+          parent_pt = (self.bp[newbpp*3], self.bp[newbpp*3+1], self.bp[newbpp*3+2])
+          gp0 = (parent_pt[0] + self.origin[0], parent_pt[1] + self.origin[1], parent_pt[2] + self.origin[2])
+          gp1 = (newbp[0] + self.origin[0], newbp[1] + self.origin[1], newbp[2] + self.origin[2])
+          try:
+            if not self.edge_index.validate_edge(gp0, gp1, self.tree_id):
+              continue
+          except Exception:
+            pass
         self.addBranchPoint(newbp, newbpp, generation)
+        if self.edge_index is not None and newbpp is not None:
+          parent_pt = (self.bp[newbpp*3], self.bp[newbpp*3+1], self.bp[newbpp*3+2])
+          gp0 = (parent_pt[0] + self.origin[0], parent_pt[1] + self.origin[1], parent_pt[2] + self.origin[2])
+          gp1 = (newbp[0] + self.origin[0], newbp[1] + self.origin[1], newbp[2] + self.origin[2])
+          try:
+            self.edge_index.add_edge(gp0, gp1, self.tree_id)
+          except Exception:
+            pass
 
   def nodeRelocation(self):
     """move the branchpoints halfway to their parent"""
@@ -249,27 +300,75 @@ class SCA:
 
     # self.nodeRelocation()
 
-    self.branchpoints=[]
+    self.finalize_after_growth()
+    #print('endpoints',len(self.endpoints))    
+
+  def finalize_after_growth(self):
+    """Build derived data (branchpoints, connections, endpoints) after growth steps."""
+    self.branchpoints = []
     for bi in range(len(self.bp)//3):
         bp = self.bp[bi*3], self.bp[bi*3+1], self.bp[bi*3+2]
-        bpp= self.bpp[bi]
-        gen= self.bpg[bi]
+        bpp = self.bpp[bi]
+        gen = self.bpg[bi]
         self.branchpoints.append(Branchpoint(bp, bpp, gen))
-        # note that we do not actually discriminate betwee apex and sideshoot, the first to connect is the apex
         if bpp is not None:
             parent = self.branchpoints[bpp]
             if parent.apex is None:
                 parent.apex = self.branchpoints[-1]
             else:
                 parent.shoot = self.branchpoints[-1]
-    
+
     for bp in self.branchpoints:
         bpp = bp
         while bpp.parent is not None:
             bpp = self.branchpoints[bpp.parent]
-            bpp.connections += 1 # a bit of a misnomer: this is the sum of all connected children for this branchpoint
-        
-    self.endpoints=[]
+            bpp.connections += 1
+
+    self.endpoints = []
     for ep in self.ep:
         self.endpoints.append(Vector(ep))
-    #print('endpoints',len(self.endpoints))    
+
+  def begin_growth(self, newendpointsper1000=0, maxtime=0.0):
+    """Initialize state for step-wise growth across generations."""
+    rate = (newendpointsper1000 / 1000.0) if newendpointsper1000 > 0.0 else 0.0
+    t = expovariate(rate) if rate > 0.0 else 1.0
+    self._growth_state = GrowthState(
+      starttime=time(),
+      niterations=0.0,
+      rate=rate,
+      t=t,
+      maxtime=maxtime,
+      finished=False,
+    )
+
+  def step_growth(self, generation):
+    """Perform a single growth generation. Call begin_growth() first."""
+    if self._growth_state is None:
+      self.begin_growth(0, 0.0)
+    gs = self._growth_state
+    if gs is None or gs.finished:
+      return
+    # one growth step
+    self.growBranches(generation)
+    # time budget check
+    if gs.maxtime > 0.0 and (time() - gs.starttime) > gs.maxtime:
+      gs.finished = True
+    # stochastic new endpoints
+    if gs.rate > 0.0 and not gs.finished:
+      gs.niterations += 1.0
+      while gs.t < gs.niterations:
+        new_point = self.volumepoint(1)
+        self.addEndPoint(new_point)
+        gs.t += expovariate(gs.rate)
+    # reduce apical control
+    if self.apicaltiming > 0:
+      self.apicaltiming -= 1
+      self.apicalcontrol -= self.apicalstep
+      if self.apicalcontrol < 0:
+        self.apicalcontrol = 0.0
+    # max iterations safeguard
+    if generation >= self.maxiterations - 1:
+      gs.finished = True
+
+  def is_finished(self):
+    return self._growth_state is not None and self._growth_state.finished

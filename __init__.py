@@ -1,10 +1,12 @@
 import sys
 
-from leaf_generation import MatlabEngineProvider
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python311\\site-packages")
+from .leaf_generation import MatlabEngineProvider
 
 import time
-from typing import Any, List, Dict
+import gc
+from typing import Any, List, Dict, Tuple
+from dataclasses import dataclass
 import random
 import csv
 import json
@@ -12,8 +14,11 @@ from scipy.spatial import KDTree
 import numpy as np
 
 import bpy
-from .voxel_grid import VoxelGrid
+from mathutils import Vector
+# removed: VoxelGrid (voxelization not used)
 from .tree_mesh_generation import SCATree
+from .sca import SCA
+from .edge_index import EdgeIndex
 import bmesh
 
 from .poisson_disk_sampling import poisson_disk_sampling_on_surface
@@ -29,6 +34,16 @@ bl_info = {
     "wiki_url": "https://github.com/varkenvarken/spacetree/wiki",
     "tracker_url": "",
     "category": "Add Mesh"}
+
+@dataclass
+class PreparedTree:
+    index: int
+    pos: Tuple[float, float]
+    config_index: int
+    location: Vector
+    generator: SCATree
+    sca: SCA
+    start_time: float
 
 class TreeConfiguration(bpy.types.PropertyGroup):
     path: bpy.props.StringProperty(
@@ -161,13 +176,17 @@ class ForestGenerator(bpy.types.Operator):
         tree_positions = poisson_disk_sampling_on_surface(surface_data, configuration_weights, crown_widths)
         
         original_cursor_location = bpy.context.scene.cursor.location.copy()
+
+        prepared_trees: List[PreparedTree] = []
+
+        # Edge index for inter-tree proximity checks
+        edge_index = EdgeIndex()
+        # 1) Initialize all trees (volume, SCA state), but don't fully generate
         for i, tree_position in enumerate(tree_positions):
-            start_time = time.time()
-            
             tree_location = (tree_position[0][0], tree_position[0][1], 0)
             bpy.context.scene.cursor.location = tree_location
             bpy.context.view_layer.update()
-            
+
             sca_tree_generator = SCATree(
                 noModifiers=False,
                 subSurface=True,
@@ -176,24 +195,61 @@ class ForestGenerator(bpy.types.Operator):
                 class_id=i,
                 **tree_mesh_configurations[tree_position[1]],
             )
-            
-            sca_tree_mesh = sca_tree_generator.create_tree(context)
-            
-            bpy.context.view_layer.update()
-            
-            if sca_tree_mesh == None:
-                continue
-            sca_tree_mesh.location = bpy.context.scene.cursor.location.copy()
-            
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            print(f"{i+1} out of {len(tree_positions)} trees generated at {tree_position[0]} with configuration index {tree_position[1]} in {elapsed_time:.2f} seconds")
+
+            sca = sca_tree_generator.prepare_growth(context, edge_index)
+            prepared_trees.append(PreparedTree(
+                index=i,
+                pos=(float(tree_position[0][0]), float(tree_position[0][1])),
+                config_index=int(tree_position[1]),
+                location=bpy.context.scene.cursor.location.copy(),
+                generator=sca_tree_generator,
+                sca=sca,
+                start_time=time.time(),
+            ))
+
+        # 2) Grow generation-by-generation across all trees
+        if prepared_trees:
+            max_generations = max(t.sca.maxiterations for t in prepared_trees)
+            for gen in range(max_generations):
+                all_finished = True
+                for t in prepared_trees:
+                    if not t.sca.is_finished():
+                        t.sca.step_growth(gen)
+                    all_finished = all_finished and t.sca.is_finished()
+                if all_finished:
+                    break
+
+        # 3) Finalize meshes for all trees
+        for t in prepared_trees:
+            try: 
+                bpy.context.scene.cursor.location = t.location
+                bpy.context.view_layer.update()
+                sca_tree_mesh = t.generator.finalize_tree(context)
+                if sca_tree_mesh is None:
+                    continue
+                sca_tree_mesh.location = t.location
+                elapsed_time = time.time() - t.start_time
+                i = t.index
+                print(f"{i+1} out of {len(prepared_trees)} trees generated at {t.pos} with configuration index {t.config_index} in {elapsed_time:.2f} seconds")
+            except Exception as e:
+                print(f"Error generating tree {t.index} at {t.pos}: {e}")
 
         matlab_engine_provider = MatlabEngineProvider()
         matlab_engine_provider.quit_engine()
 
         self.updateForest = False
         bpy.context.scene.cursor.location = original_cursor_location
+
+        # Purge unused Blender data-blocks and run Python GC to free memory
+        try:
+            # Recursively remove all orphan data (meshes, materials, images, etc.)
+            bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+        except Exception as e:
+            print(f"Orphans purge failed: {e}")
+        try:
+            gc.collect()
+        except Exception as e:
+            print(f"Python GC failed: {e}")
         
         return {'FINISHED'}
         
