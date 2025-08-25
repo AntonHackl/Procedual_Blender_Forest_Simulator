@@ -244,20 +244,14 @@ class SCA:
           parent_pt = (self.bp[newbpp*3], self.bp[newbpp*3+1], self.bp[newbpp*3+2])
           gp0 = (parent_pt[0] + self.origin[0], parent_pt[1] + self.origin[1], parent_pt[2] + self.origin[2])
           gp1 = (newbp[0] + self.origin[0], newbp[1] + self.origin[1], newbp[2] + self.origin[2])
-          try:
-            if not self.edge_index.validate_edge(gp0, gp1, self.tree_id):
-              continue
-          except Exception:
-            pass
+          if not self.edge_index.validate_edge(gp0, gp1, self.tree_id):
+            continue
         self.addBranchPoint(newbp, newbpp, generation)
         if self.edge_index is not None and newbpp is not None:
           parent_pt = (self.bp[newbpp*3], self.bp[newbpp*3+1], self.bp[newbpp*3+2])
           gp0 = (parent_pt[0] + self.origin[0], parent_pt[1] + self.origin[1], parent_pt[2] + self.origin[2])
           gp1 = (newbp[0] + self.origin[0], newbp[1] + self.origin[1], newbp[2] + self.origin[2])
-          try:
-            self.edge_index.add_edge(gp0, gp1, self.tree_id)
-          except Exception:
-            pass
+          self.edge_index.add_edge(gp0, gp1, self.tree_id)
 
   def nodeRelocation(self):
     """move the branchpoints halfway to their parent"""

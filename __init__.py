@@ -5,12 +5,10 @@ from .leaf_generation import MatlabEngineProvider
 
 import time
 import gc
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Tuple
 from dataclasses import dataclass
 import random
-import csv
 import json
-from scipy.spatial import KDTree
 import numpy as np
 
 import bpy
@@ -39,7 +37,7 @@ bl_info = {
 class PreparedTree:
     index: int
     pos: Tuple[float, float]
-    config_index: int
+    config: dict
     location: Vector
     generator: SCATree
     sca: SCA
@@ -64,11 +62,10 @@ class ForestGenerator(bpy.types.Operator):
     bl_label = "Forest Generator"
     bl_options = {'REGISTER', 'UNDO'}
 
-    surface: bpy.props.StringProperty(
-        name="Surface", 
-        description="Path to the file", 
-        subtype='FILE_PATH',
-        default="C:\\Users\\anton\\Documents\\Uni\\Spatial_Data_Analysis\\Procedual_Blender_Forest_Simulator\\surface.csv"
+    surface_object_name: bpy.props.StringProperty(
+        name="Surface Object",
+        description="Name of the mesh object to use as terrain surface",
+        default=""
     )
     treeConfigurationCount: bpy.props.IntProperty(
         name="Number of tree configurations",
@@ -76,7 +73,7 @@ class ForestGenerator(bpy.types.Operator):
         default=2,
         min=1,
     )
-    tree_configurations: bpy.props.CollectionProperty(type=TreeConfiguration) 
+    tree_configurations: bpy.props.CollectionProperty(type=TreeConfiguration)
     updateForest: bpy.props.BoolProperty(name="Generate Forest", default=False)
 
     voxel_model_related_configuration_fields = {
@@ -119,7 +116,7 @@ class ForestGenerator(bpy.types.Operator):
         box = layout.box()
         box.prop(self, 'updateForest', icon='MESH_DATA')
         box.label(text="Generation Settings:")
-        box.prop(self, 'surface')
+        box.prop_search(self, 'surface_object_name', bpy.data, 'objects', text='Surface Object')
         box.prop(self, 'treeConfigurationCount')
 
         for i, tree_config in enumerate(self.tree_configurations):
@@ -146,12 +143,8 @@ class ForestGenerator(bpy.types.Operator):
         if not self.updateForest:
             return {'FINISHED'}
         
-        surface_data = []
-        if '.csv' in self.surface:
-            with open(self.surface) as csvfile:
-                csv_reader = csv.reader(csvfile, delimiter=',')
-                for row in csv_reader:
-                    surface_data.append([int(value) for value in row])
+        terrain_obj = bpy.data.objects.get(self.surface_object_name) if self.surface_object_name else None
+        use_mesh_surface = terrain_obj is not None and getattr(terrain_obj.data, 'polygons', None) is not None
 
         tree_configurations: List[dict[str, Any]] = []
         configuration_weights: List[float] = []
@@ -181,59 +174,83 @@ class ForestGenerator(bpy.types.Operator):
                     'totalLeafArea': 20,
                 }
 
-        crown_widths = [tree_configuration["crown_width"] for tree_configuration in tree_mesh_configurations]
-        tree_positions = poisson_disk_sampling_on_surface(surface_data, configuration_weights, crown_widths)
+        # Pre-sample full configurations in Poisson sampling and receive per-tree sampled configs
+        tree_positions = []
+        if use_mesh_surface:
+            tree_positions = poisson_disk_sampling_on_surface(terrain_obj, configuration_weights, tree_mesh_configurations)
+        else:
+            print('No surface object set. Aborting forest generation.')
+            return {'FINISHED'}
         
         original_cursor_location = bpy.context.scene.cursor.location.copy()
 
         prepared_trees: List[PreparedTree] = []
 
-        # Edge index for inter-tree proximity checks
         edge_index = EdgeIndex()
-        # 1) Initialize all trees (volume, SCA state), but don't fully generate
+        if use_mesh_surface:
+            edge_index.set_terrain(terrain_obj)
+        else:
+            raise RuntimeError("Mesh surface required to build terrain BVH for collision checks.")
         for i, tree_position in enumerate(tree_positions):
-            tree_location = (tree_position[0][0], tree_position[0][1], 0)
+            pos = tree_position[0]
+            if isinstance(pos, (list, tuple)) and len(pos) >= 3:
+                tree_location = (pos[0], pos[1], pos[2])
+            else:
+                tree_location = (pos[0], pos[1], 0)
             bpy.context.scene.cursor.location = tree_location
             bpy.context.view_layer.update()
+            cfg_sampled = dict(tree_position[1])
+            cfg_leaf_params = cfg_sampled.pop('leaf_params', None)
 
-            cfg = dict(tree_mesh_configurations[tree_position[1]])
-            cfg_leaf_params = cfg.pop('leaf_params', None)
             sca_tree_generator = SCATree(
                 noModifiers=False,
                 subSurface=True,
                 randomSeed=random.randint(0, 1_000_000),
                 context=context,
                 class_id=i,
-                **cfg,
+                **cfg_sampled,
             )
 
-            # propagate leaf_params from config to generator for downstream usage
             setattr(sca_tree_generator, 'leaf_params', cfg_leaf_params)
 
             sca = sca_tree_generator.prepare_growth(context, edge_index)
             prepared_trees.append(PreparedTree(
                 index=i,
-                pos=(float(tree_position[0][0]), float(tree_position[0][1])),
-                config_index=int(tree_position[1]),
+                pos=(float(tree_position[0][0]), float(tree_position[0][1]), float(tree_position[0][2])),
+                config=cfg_sampled,
                 location=bpy.context.scene.cursor.location.copy(),
                 generator=sca_tree_generator,
                 sca=sca,
                 start_time=time.time(),
             ))
 
-        # 2) Grow generation-by-generation across all trees
         if prepared_trees:
             max_generations = max(t.sca.maxiterations for t in prepared_trees)
+            print(f"Starting growth simulation with {max_generations} generations")
+            
+            # Calculate progress tracking intervals (every 10%)
+            progress_interval = max(1, max_generations // 10)
+            last_progress_reported = 0
+            
             for gen in range(max_generations):
                 all_finished = True
                 for t in prepared_trees:
                     if not t.sca.is_finished():
                         t.sca.step_growth(gen)
                     all_finished = all_finished and t.sca.is_finished()
+                
+                # Report progress every 10%
+                if gen > 0 and (gen % progress_interval == 0 or gen == max_generations - 1):
+                    progress_percent = round((gen / max_generations) * 100)
+                    if progress_percent > last_progress_reported:
+                        print(f"Growth progress: {progress_percent}% of generations completed ({gen}/{max_generations})")
+                        last_progress_reported = progress_percent
+                    
                 if all_finished:
+                    final_progress = round(((gen + 1) / max_generations) * 100)
+                    print(f"All trees finished growing after {gen + 1} generations ({final_progress}% complete)")
                     break
 
-        # 3) Finalize meshes for all trees
         for t in prepared_trees:
             try: 
                 bpy.context.scene.cursor.location = t.location
@@ -244,7 +261,7 @@ class ForestGenerator(bpy.types.Operator):
                 sca_tree_mesh.location = t.location
                 elapsed_time = time.time() - t.start_time
                 i = t.index
-                print(f"{i+1} out of {len(prepared_trees)} trees generated at {t.pos} with configuration index {t.config_index} in {elapsed_time:.2f} seconds")
+                print(f"{i+1} out of {len(prepared_trees)} trees generated at {t.pos} in {elapsed_time:.2f} seconds")
             except Exception as e:
                 print(f"Error generating tree {t.index} at {t.pos}: {e}")
 
@@ -275,8 +292,8 @@ class ForestGenerator(bpy.types.Operator):
         return mat
             
 def menu_func(self, context):
-    self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest",
-                                            icon='PLUGIN').updateForest = False
+    op = self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest", icon='PLUGIN')
+    op.updateForest = False
 
 def register():
     bpy.utils.register_class(TreeConfiguration)

@@ -88,9 +88,23 @@ def import_obj_to_blender(obj_path: str):
         bpy.ops.wm.obj_import(filepath=obj_path, forward_axis='Y', up_axis='Z')
         foliage_obj = bpy.context.view_layer.objects.active
         foliage_obj.parent = active_object
+        
+        material_name = "Foliage_Green"
+        if material_name not in bpy.data.materials:
+            mat = bpy.data.materials.new(material_name)
+            mat.diffuse_color = (0.1, 0.6, 0.1, 1.0)
+        else:
+            mat = bpy.data.materials[material_name]
+            mat.diffuse_color = (0.1, 0.6, 0.1, 1.0)
+
+        if foliage_obj.data.materials:
+            foliage_obj.data.materials[0] = mat
+        else:
+            foliage_obj.data.materials.append(mat)
+        
         bpy.context.view_layer.objects.active = active_object
         
-        print(f"Successfully imported the foliage object from: {obj_path}")
+        print(f"Successfully imported the foliage object from: {obj_path} with green material")
         return foliage_obj
 
     except Exception as e:

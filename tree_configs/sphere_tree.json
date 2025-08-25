@@ -11,10 +11,6 @@
   "surface_bias": 1.5,
   "top_bias": 1,
   "scale": 0.04,
-  "leaf_density": [
-    0.4,
-    0.5
-  ],
   "leaf_params": {
     "pLADDh": [8, 3],
     "pLADDd": [2.0, 1.5],

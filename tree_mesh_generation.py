@@ -337,7 +337,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
     nomodifiers=True, skinmethod='NATIVE', subsurface=False,
     bleaf=4.0,
     leafParticles='None',
-    leaf_density=[1.0, 1.0],
     particlesettings=None,
     objectParticles='None',
     emitterscale=0.1,
@@ -451,80 +450,6 @@ def createGeometry(tree, power=0.5, scale=0.01,
     # Read leaf parameters from the tree configuration json (defaults provided upstream)
     leaf_params = getattr(tree, 'leaf_params', None)
     generate_foliage(converted_qsm, qsm_path, execute_matlab=True, leaf_params=leaf_params)
-    leafParticles = 'None'
-    if leafParticles != 'None' or objectParticles != 'None':
-        mesh, verts, faces, radii = createLeaves2(tree, roots, Vector((0,0,0)), emitterscale)
-        obj_leaves2 = bpy.data.objects.new(mesh.name, mesh)
-        base = bpy.context.collection.objects.link(obj_leaves2)
-        obj_leaves2.parent = obj_processed
-        # bpy.context.scene.objects.active = obj_leaves2
-        bpy.context.view_layer.objects.active = obj_leaves2
-        obj_leaves2.select_set(True)
-        bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-        leavesgroup = get_vertex_group(bpy.context, 'LeafDensity')
-        maxr = max(radii)
-        if maxr<=0 : maxr=1.0
-        maxr=float(maxr)
-        for v,r in zip(mesh.vertices,radii):
-            leavesgroup.add([v.index], (1.0-r/maxr)**bleaf, 'REPLACE')
-
-        if leafParticles != 'None':
-            bpy.ops.object.particle_system_add()
-            obj_leaves2["class_id"] = class_id
-            obj_leaves2.name = f"Leaves_{obj_leaves2['class_id']}"
-            obj_leaves2.particle_systems.active.settings = particlesettings[leafParticles]
-            # obj_leaves2.particle_systems.active.settings.count = len(faces)
-            obj_leaves2.particle_systems.active.settings.count = int(len(faces) * random.uniform(leaf_density[0], leaf_density[1]))
-            obj_leaves2.particle_systems.active.name = 'Leaves'
-            obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
-
-            bpy.context.view_layer.objects.active = obj_leaves2
-            obj_leaves2.select_set(True)
-            bpy.ops.object.duplicates_make_real()
-
-            for leaf_idx, obj in enumerate(bpy.context.selected_objects):
-                if obj != obj_leaves2 and obj != obj_processed:
-
-                    obj["class_id"] = class_id
-                    obj.name = f"Leaf_{obj['class_id']}_{leaf_idx}"
-
-                    world_matrix = obj.matrix_world.copy()
-
-                    obj.parent = obj_processed
-
-                    obj.matrix_world = world_matrix
-
-            bpy.context.view_layer.objects.active = obj_leaves2
-            bpy.ops.object.particle_system_remove()
-
-        if objectParticles != 'None':
-            bpy.ops.object.particle_system_add()
-            obj_leaves2.particle_systems.active.settings = particlesettings[objectParticles]
-            obj_leaves2.particle_systems.active.settings.count = len(faces)
-            obj_leaves2.particle_systems.active.name = 'Objects'
-            obj_leaves2.particle_systems.active.vertex_group_density = leavesgroup.name
-
-            bpy.context.view_layer.objects.active = obj_leaves2
-            obj_leaves2.select_set(True)
-            bpy.ops.object.duplicates_make_real()
-
-            for obj_idx, obj in enumerate(bpy.context.selected_objects):
-                if obj != obj_leaves2 and obj != obj_processed:
-
-                    obj["class_id"] = class_id
-                    obj.name = f"Object_{obj['class_id']}_{obj_idx}"
-
-                    world_matrix = obj.matrix_world.copy()
-
-                    obj.parent = obj_processed
-
-                    obj.matrix_world = world_matrix
-
-            bpy.context.view_layer.objects.active = obj_leaves2
-            bpy.ops.object.particle_system_remove()
-
-        bpy.data.objects.remove(obj_leaves2, do_unlink=True)
-
     timings.add('leaves')
 
     if timeperf:
@@ -733,7 +658,6 @@ class SCATree():
                 maxIterations=40,
                 pruningGen=0,
                 numberOfEndpoints=100,
-                leaf_density=[1.0, 1.0],
                 newEndPointsPer1000=0,
                 maxTime=0.0,
                 bLeaf=4.0,
@@ -775,12 +699,6 @@ class SCATree():
         self.crown_type = crown_type
         self.stem_height = stem_height
         self.stem_diameter = stem_diameter
-
-        if len(leaf_density) != 2:
-            raise ValueError("leaf_density must be a list of two floats, e.g. [1.0, 1.0]")
-        leaf_density = [min(leaf_density), max(leaf_density)]
-        leaf_density = [max(leaf_density[0], 0.0), min(leaf_density[1], 1.0)]
-        self.leaf_density = leaf_density
         self.newEndPointsPer1000 = newEndPointsPer1000
         self.maxTime = maxTime
         self.bLeaf = bLeaf
@@ -895,11 +813,11 @@ class SCATree():
 
         self.leafParticles = next((k for k in particlesettings.keys() if k.startswith('LeavesAbstractSummer')), 'None')
 
-        obj_new = createGeometry(sca, self.power, self.scale,
+        obj_new = createGeometry(
+            sca, self.power, self.scale,
             self.noModifiers, self.skinMethod, self.subSurface,
             self.bLeaf,
             self.leafParticles,
-            self.leaf_density,
             particlesettings if self.addLeaves else 'None',
             'None',
             self.emitterScale,
