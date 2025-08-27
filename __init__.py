@@ -5,6 +5,7 @@ from .leaf_generation import MatlabEngineProvider
 
 import time
 import gc
+import os
 from typing import Any, List, Tuple
 from dataclasses import dataclass
 import random
@@ -19,7 +20,7 @@ from .sca import SCA
 from .edge_index import EdgeIndex
 import bmesh
 
-from .poisson_disk_sampling import poisson_disk_sampling_on_surface
+from .poisson_disk_sampling import poisson_disk_sampling_on_surface, poisson_disk_sampling_low_vegetation
 
 bl_info = {
     "name": "Forest Generator",
@@ -75,6 +76,13 @@ class ForestGenerator(bpy.types.Operator):
     )
     tree_configurations: bpy.props.CollectionProperty(type=TreeConfiguration)
     updateForest: bpy.props.BoolProperty(name="Generate Forest", default=False)
+    low_vegetation_density: bpy.props.FloatProperty(
+        name="Low Vegetation Density",
+        description="Density of low vegetation placement",
+        default=1.0,
+        min=0.1,
+        max=10.0
+    )
 
     voxel_model_related_configuration_fields = {
         # "stem_height",
@@ -117,6 +125,7 @@ class ForestGenerator(bpy.types.Operator):
         box.prop(self, 'updateForest', icon='MESH_DATA')
         box.label(text="Generation Settings:")
         box.prop_search(self, 'surface_object_name', bpy.data, 'objects', text='Surface Object')
+        box.prop(self, 'low_vegetation_density', text='Low Vegetation Density')
         box.prop(self, 'treeConfigurationCount')
 
         for i, tree_config in enumerate(self.tree_configurations):
@@ -234,7 +243,9 @@ class ForestGenerator(bpy.types.Operator):
             
             for gen in range(max_generations):
                 all_finished = True
-                for t in prepared_trees:
+                trees_this_generation = prepared_trees.copy()
+                random.shuffle(trees_this_generation)
+                for t in trees_this_generation:
                     if not t.sca.is_finished():
                         t.sca.step_growth(gen)
                     all_finished = all_finished and t.sca.is_finished()
@@ -271,6 +282,16 @@ class ForestGenerator(bpy.types.Operator):
         self.updateForest = False
         bpy.context.scene.cursor.location = original_cursor_location
 
+        # Organize trees and leaf exports into collection first
+        trees_collection = self.get_or_create_collection("Trees")
+        for obj in bpy.context.scene.objects:
+            if obj.name.startswith("Tree_") or obj.name.startswith("leaves_export"):
+                self.move_to_collection(obj, trees_collection)
+        
+        # Place low vegetation
+        if self.low_vegetation_density > 0:
+            self.place_low_vegetation(terrain_obj)
+
         # Purge unused Blender data-blocks and run Python GC to free memory
         try:
             # Recursively remove all orphan data (meshes, materials, images, etc.)
@@ -283,6 +304,290 @@ class ForestGenerator(bpy.types.Operator):
             print(f"Python GC failed: {e}")
         
         return {'FINISHED'}
+    
+    def place_low_vegetation(self, terrain_obj):
+        """Place low vegetation objects using Poisson disk sampling."""
+        print("Placing low vegetation...")
+        
+        # Get low vegetation positions
+        vegetation_positions = poisson_disk_sampling_low_vegetation(
+            terrain_obj, 
+            self.low_vegetation_density
+        )
+        
+        if not vegetation_positions:
+            print("No low vegetation positions generated.")
+            return
+        
+        # Create or get low vegetation collection
+        low_vegetation_collection = self.get_or_create_collection("Low Vegetation")
+        
+        # Load low vegetation models from LowVegetation.blend
+        vegetation_models = self.load_low_vegetation_models()
+        
+        if not vegetation_models:
+            print("No low vegetation models found.")
+            return
+        
+        # Calculate all bounding boxes and max height once
+        vegetation_bboxes = self.calculate_vegetation_bounding_boxes(vegetation_models)
+        max_veg_height = self.get_max_vegetation_height_from_bboxes(vegetation_bboxes)
+        
+        # Calculate tree bounding boxes once
+        tree_bboxes = self.calculate_tree_bounding_boxes(max_veg_height)
+        
+        # Create low vegetation material
+        low_veg_material = self.create_low_vegetation_material()
+        
+        # Place vegetation objects
+        placed_count = 0
+        for pos in vegetation_positions:
+            # Choose random vegetation model first
+            model_name = random.choice(list(vegetation_models.keys()))
+            model_obj = vegetation_models[model_name]
+            
+            # Check if position would cause collision with existing trees
+            if self.is_too_close_to_trees(pos, model_obj, vegetation_bboxes, tree_bboxes):
+                continue
+            
+            # Create instance
+            new_obj = model_obj.copy()
+            new_obj.data = model_obj.data.copy()
+            new_obj.name = f"LowVegetation_{placed_count}"
+            
+            # Position on terrain
+            new_obj.location = (pos[0], pos[1], pos[2])
+            
+            # Get terrain normal at this point and orient the object
+            normal = self.get_terrain_normal_at_point(terrain_obj, pos)
+            if normal:
+                # Create rotation matrix to align with terrain normal
+                up_vector = Vector((0, 0, 1))
+                rotation_matrix = up_vector.rotation_difference(normal).to_matrix()
+                new_obj.rotation_euler = rotation_matrix.to_euler()
+            
+            # Apply low vegetation material
+            if new_obj.data.materials:
+                new_obj.data.materials[0] = low_veg_material
+            else:
+                new_obj.data.materials.append(low_veg_material)
+            
+            # Add to collection
+            low_vegetation_collection.objects.link(new_obj)
+            
+            placed_count += 1
+        
+        print(f"Placed {placed_count} low vegetation objects.")
+    
+    def get_or_create_collection(self, collection_name):
+        """Get or create a collection with the given name."""
+        if collection_name in bpy.data.collections:
+            return bpy.data.collections[collection_name]
+        else:
+            new_collection = bpy.data.collections.new(collection_name)
+            bpy.context.scene.collection.children.link(new_collection)
+            return new_collection
+    
+    def move_to_collection(self, obj, target_collection):
+        """Move an object to the specified collection."""
+        # Remove from scene collection if present
+        if obj.name in bpy.context.scene.collection.objects:
+            bpy.context.scene.collection.objects.unlink(obj)
+        
+        # Remove from all other collections
+        for collection in bpy.data.collections:
+            if obj.name in collection.objects:
+                collection.objects.unlink(obj)
+        
+        # Add to target collection
+        target_collection.objects.link(obj)
+    
+    def load_low_vegetation_models(self):
+        """Load low vegetation models from LowVegetation.blend file."""
+        models = {}
+        
+        # Look for LowVegetation.blend in the addon directory
+        addon_dir = os.path.dirname(__file__)
+        low_veg_path = os.path.join(addon_dir, "low_vegetation", "LowVegetation.blend")
+        
+        if not os.path.exists(low_veg_path):
+            print(f"LowVegetation.blend not found at: {low_veg_path}")
+            return models
+        
+        try:
+            # Load the blend file
+            with bpy.data.libraries.load(low_veg_path, link=False) as (data_from, data_to):
+                # Load all objects and filter by name
+                data_to.objects = [name for name in data_from.objects 
+                                 if name.startswith(('fern_02_', 'High grass clump'))]
+            
+            # Store the loaded objects
+            for obj in data_to.objects:
+                if obj is not None:
+                    models[obj.name] = obj
+            
+            print(f"Loaded {len(models)} low vegetation models: {list(models.keys())}")
+            
+        except Exception as e:
+            print(f"Error loading low vegetation models: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        return models
+    
+    def create_low_vegetation_material(self):
+        """Create dark green material for low vegetation."""
+        mat_name = "Low Vegetation"
+        
+        # Check if material already exists
+        if mat_name in bpy.data.materials:
+            return bpy.data.materials[mat_name]
+        
+        # Create new material
+        mat = bpy.data.materials.new(name=mat_name)
+        mat.use_nodes = True
+        
+        # Get the Principled BSDF node
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf:
+            # Set dark green color
+            bsdf.inputs['Base Color'].default_value = (0.1, 0.3, 0.1, 1.0)
+        
+        return mat
+    
+    def is_too_close_to_trees(self, pos, vegetation_obj, vegetation_bboxes, tree_bboxes):
+        """Check if vegetation object would collide with existing trees using pre-calculated bounding boxes."""
+        for tree_name, tree_bbox in tree_bboxes.items():
+            if self.check_bbox_collision(vegetation_obj, pos, tree_bbox):
+                return True
+        return False
+    
+    def calculate_vegetation_bounding_boxes(self, vegetation_models):
+        """Calculate bounding boxes for all vegetation models once."""
+        vegetation_bboxes = {}
+        
+        for model_name, model_obj in vegetation_models.items():
+            try:
+                # Get bounding box of the model
+                bbox_corners = [model_obj.matrix_world @ Vector(corner) for corner in model_obj.bound_box]
+                vegetation_bboxes[model_name] = {
+                    'min': Vector((
+                        min(corner.x for corner in bbox_corners),
+                        min(corner.y for corner in bbox_corners),
+                        min(corner.z for corner in bbox_corners)
+                    )),
+                    'max': Vector((
+                        max(corner.x for corner in bbox_corners),
+                        max(corner.y for corner in bbox_corners),
+                        max(corner.z for corner in bbox_corners)
+                    )),
+                    'height': max(corner.z for corner in bbox_corners) - min(corner.z for corner in bbox_corners)
+                }
+            except Exception as e:
+                print(f"Error calculating bounding box for {model_name}: {e}")
+        
+        return vegetation_bboxes
+    
+    def get_max_vegetation_height_from_bboxes(self, vegetation_bboxes):
+        """Get maximum height from pre-calculated bounding boxes."""
+        max_height = 0.0
+        
+        for model_name, bbox_data in vegetation_bboxes.items():
+            max_height = max(max_height, bbox_data['height'])
+        
+        # Add some buffer for safety
+        return max_height + 0.5
+    
+    def calculate_tree_bounding_boxes(self, max_veg_height):
+        """Calculate height-limited bounding boxes for all trees once."""
+        tree_bboxes = {}
+        
+        for obj in bpy.context.scene.objects:
+            if obj.name.startswith("Tree_"):
+                try:
+                    # Get tree vertices and filter by height
+                    tree_mesh = obj.data
+                    tree_vertices_world = [obj.matrix_world @ v.co for v in tree_mesh.vertices]
+                    
+                    # Filter vertices to only those within the height range of low vegetation
+                    tree_base_z = min(v.z for v in tree_vertices_world)
+                    max_tree_z_for_collision = tree_base_z + max_veg_height
+                    
+                    # Only consider tree vertices up to the maximum vegetation height
+                    filtered_vertices = [v for v in tree_vertices_world if v.z <= max_tree_z_for_collision]
+                    
+                    if filtered_vertices:
+                        # Calculate tree bounding box from filtered vertices
+                        tree_bboxes[obj.name] = {
+                            'min': Vector((
+                                min(v.x for v in filtered_vertices),
+                                min(v.y for v in filtered_vertices),
+                                min(v.z for v in filtered_vertices)
+                            )),
+                            'max': Vector((
+                                max(v.x for v in filtered_vertices),
+                                max(v.y for v in filtered_vertices),
+                                max(v.z for v in filtered_vertices)
+                            ))
+                        }
+                except Exception as e:
+                    print(f"Error calculating bounding box for tree {obj.name}: {e}")
+        
+        return tree_bboxes
+    
+    def check_bbox_collision(self, vegetation_obj, vegetation_pos, tree_bbox):
+        """Check collision between vegetation and pre-calculated tree bounding box."""
+        try:
+            # Get vegetation bounding box at the test position
+            veg_bbox_corners = [vegetation_obj.matrix_world @ Vector(corner) for corner in vegetation_obj.bound_box]
+            offset = Vector(vegetation_pos) - vegetation_obj.location
+            veg_bbox_corners = [corner + offset for corner in veg_bbox_corners]
+            
+            veg_min = Vector((
+                min(corner.x for corner in veg_bbox_corners),
+                min(corner.y for corner in veg_bbox_corners),
+                min(corner.z for corner in veg_bbox_corners)
+            ))
+            veg_max = Vector((
+                max(corner.x for corner in veg_bbox_corners),
+                max(corner.y for corner in veg_bbox_corners),
+                max(corner.z for corner in veg_bbox_corners)
+            ))
+            
+            # Check if bounding boxes overlap
+            return not (
+                tree_bbox['max'].x < veg_min.x or tree_bbox['min'].x > veg_max.x or
+                tree_bbox['max'].y < veg_min.y or tree_bbox['min'].y > veg_max.y or
+                tree_bbox['max'].z < veg_min.z or tree_bbox['min'].z > veg_max.z
+            )
+            
+        except Exception as e:
+            print(f"Error in bbox collision check: {e}")
+            return True  # Conservative: assume collision if error
+    
+
+    
+
+    
+
+    
+    def get_terrain_normal_at_point(self, terrain_obj, pos):
+        """Get terrain normal at a specific point."""
+        try:
+            # Raycast from above the point
+            origin = Vector((pos[0], pos[1], pos[2] + 100.0))
+            direction = Vector((0.0, 0.0, -1.0))
+            
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            eval_obj = terrain_obj.evaluated_get(depsgraph)
+            hit, location, normal, index = eval_obj.ray_cast(origin, direction)
+            
+            if hit and normal:
+                return normal.normalized()
+        except Exception as e:
+            print(f"Error getting terrain normal: {e}")
+        
+        return None
         
     def create_random_material(self, name):
         mat = bpy.data.materials.new(name)

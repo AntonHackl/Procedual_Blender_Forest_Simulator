@@ -267,53 +267,73 @@ def createMarkers(tree,scale=0.05):
     mesh.update(calc_edges=True)
     return mesh
 
-def basictri(bp, verts, radii, power, scale, p):
-    v = bp.v + p
+def basictri(bp, verts, radii_abs, p):
+    if bp.v is None:
+        raise RuntimeError(f"Branchpoint {getattr(bp, 'index', -1)} has no position (v=None)")
+    v_bp = bp.v if isinstance(bp.v, Vector) else Vector(bp.v)
+    v = v_bp + p
     nv = len(verts)
-    r=(bp.connections**power)*scale
-    a=-r
-    b=r*0.5   # cos(60)
-    c=r*0.866 # sin(60)
-    verts.extend([v+Vector((a,0,0)), v+Vector((b,-c,0)), v+Vector((b,c,0))]) # provisional, should become an optimally rotated triangle
-    radii.extend([bp.connections,bp.connections,bp.connections])
+    r = float(radii_abs[bp.index])
+    a = -r
+    b = r * 0.5   # cos(60)
+    c = r * 0.866 # sin(60)
+    verts.extend([
+        v + Vector((a, 0, 0)),
+        v + Vector((b, -c, 0)),
+        v + Vector((b,  c, 0)),
+    ])
     return (nv, nv+1, nv+2)
 
-def _simpleskin(bp, loop, verts, faces, radii, power, scale, p):
-    newloop = basictri(bp, verts, radii, power, scale, p)
+def _simpleskin(bp, loop, verts, faces, radii_abs, p):
+    newloop = basictri(bp, verts, radii_abs, p)
     for i in range(3):
         faces.append((loop[i],loop[(i+1)%3],newloop[(i+1)%3],newloop[i]))
     if bp.apex:
-        _simpleskin(bp.apex, newloop, verts, faces, radii, power, scale, p)
+        _simpleskin(bp.apex, newloop, verts, faces, radii_abs, p)
     if bp.shoot:
-        _simpleskin(bp.shoot, newloop, verts, faces, radii, power, scale, p)
+        _simpleskin(bp.shoot, newloop, verts, faces, radii_abs, p)
 
-def simpleskin(bp, verts, faces, radii, power, scale, p):
-    loop = basictri(bp, verts, radii, power, scale, p)
+def simpleskin(bp, verts, faces, radii_abs, p):
+    loop = basictri(bp, verts, radii_abs, p)
     if bp.apex:
-        _simpleskin(bp.apex, loop, verts, faces, radii, power, scale, p)
+        _simpleskin(bp.apex, loop, verts, faces, radii_abs, p)
     if bp.shoot:
-        _simpleskin(bp.shoot, loop, verts, faces, radii, power, scale, p)
+        _simpleskin(bp.shoot, loop, verts, faces, radii_abs, p)
+
+def _basictri_fixed(bp, verts, scale, p):
+    v = bp.v + p
+    nv = len(verts)
+    r = float(scale)
+    a = -r
+    b = r * 0.5
+    c = r * 0.866
+    verts.extend([
+        v + Vector((a, 0, 0)),
+        v + Vector((b, -c, 0)),
+        v + Vector((b,  c, 0)),
+    ])
+    return (nv, nv+1, nv+2)
 
 #TODO: Make it better than just random
-def leafnode(bp, verts, faces, radii, p1, p2, scale=0.0001):
-    loop1 = basictri(bp, verts, radii, 0.0, scale, p1)
-    loop2 = basictri(bp, verts, radii, 0.0, scale, p2)
+def leafnode(bp, verts, faces, radii_unused, p1, p2, scale=0.0001):
+    loop1 = _basictri_fixed(bp, verts, scale, p1)
+    loop2 = _basictri_fixed(bp, verts, scale, p2)
     # if random() > random_threshold:
     #   for i in range(3):
     #     faces.append((loop1[i],loop1[(i+1)%3],loop2[(i+1)%3],loop2[i]))
     for i in range(3):
         faces.append((loop1[i],loop1[(i+1)%3],loop2[(i+1)%3],loop2[i]))
     if bp.apex:
-        leafnode(bp.apex, verts, faces, radii, p1, p2, scale)
+        leafnode(bp.apex, verts, faces, radii_unused, p1, p2, scale)
     if bp.shoot:
-        leafnode(bp.shoot, verts, faces, radii, p1, p2, scale)
+        leafnode(bp.shoot, verts, faces, radii_unused, p1, p2, scale)
 
 def createLeaves2(tree, roots, p, scale):
     verts = []
     faces = []
     radii = []
     for r in roots:
-        leafnode(r, verts, faces, radii, p, p++Vector((0,0, scale)), scale)
+        leafnode(r, verts, faces, radii, p, p+Vector((0,0, scale)), scale)
     mesh = bpy.data.meshes.new('LeafEmitter')
     mesh.from_pydata(verts, [], faces)
     mesh.update(calc_edges=True)
@@ -327,13 +347,165 @@ def pruneTree(tree, generation):
         #print(i, bp.v, bp.generation, bp.parent, end='')
         if bp.generation >= generation:
             #print(' keep', end='')
-            bp.index = i
-            i2p[i] = len(nbp)
+            new_idx = len(nbp)
+            bp.index = new_idx
+            i2p[i] = new_idx
             nbp.append(bp)
         #print()
     return nbp, i2p
 
-def createGeometry(tree, power=0.5, scale=0.01,
+def compute_radii_da_vinci(tree, trunk_radius, radius_exponent, node_to_children, root_idx):
+    """
+    Compute radii using weighted Da Vinci's rule: r_i = (w_i * r_p^x)^(1/x)
+    where w_i is the subtree weight (number of descendant nodes) normalized to sum to 1.
+    This makes tips thicker based on their subtree size.
+    """
+    x = float(radius_exponent)
+    if x <= 0.0:
+        raise ValueError("radius_exponent must be positive")
+    
+    n_nodes = len(tree.branchpoints)
+    
+    # First pass: compute subtree sizes (number of descendant nodes) for each node
+    subtree_sizes = [0] * n_nodes
+    
+    # Post-order traversal to compute subtree sizes
+    stack = [root_idx]
+    visit_order = []
+    while stack:
+        node = stack.pop()
+        visit_order.append(node)
+        stack.extend(node_to_children.get(node, []))
+    
+    for node in reversed(visit_order):
+        children = node_to_children.get(node, [])
+        if not children:
+            subtree_sizes[node] = 1  # leaf nodes count as 1
+        else:
+            subtree_sizes[node] = 1 + sum(subtree_sizes[c] for c in children)
+    
+    # Second pass: top-down distribution using weighted Da Vinci's rule
+    radii_abs = [0.0] * n_nodes
+    radii_abs[root_idx] = float(trunk_radius)
+    
+    stack = [root_idx]
+    while stack:
+        node = stack.pop()
+        children = node_to_children.get(node, [])
+        if not children:
+            continue
+        
+        # Compute weights based on subtree sizes, normalized to sum to 1
+        total_subtree_size = sum(subtree_sizes[c] for c in children)
+        weights = [subtree_sizes[c] / total_subtree_size for c in children]
+        
+        # Apply weighted Da Vinci's rule: r_i = (w_i * r_p^x)^(1/x)
+        parent_radius = radii_abs[node]
+        for i, child in enumerate(children):
+            w_i = weights[i]
+            child_radius = (w_i * (parent_radius ** x)) ** (1.0 / x)
+            radii_abs[child] = child_radius
+            stack.append(child)
+    
+    return radii_abs
+
+
+def smooth_radii_along_unary_chains(tree, radii_abs, node_to_children, parent_idx):
+    """
+    Smooth interpolation along unary chains to create gradual transitions.
+    For each branching node, interpolate along upstream unary chains.
+    """
+    n_nodes = len(tree.branchpoints)
+    
+    # For each branching node, interpolate along upstream unary chains
+    for b in range(n_nodes):
+        children = node_to_children.get(b, [])
+        if len(children) < 2:
+            continue
+        
+        # Find upstream unary chain ending at the parent of this branch node
+        end_node = parent_idx[b]
+        if end_node is None:
+            continue
+        chain_nodes: list[int] = [b]
+        node = end_node
+        while node is not None and len(node_to_children.get(node, [])) == 1:
+            chain_nodes.append(node)
+            node = parent_idx[node]
+
+        if not chain_nodes:
+            continue
+
+        chain_nodes = list(reversed(chain_nodes))  # from start -> end
+
+        # Compute distances along the chain to weight interpolation
+        dists: list[float] = [0.0] * len(chain_nodes)
+        cum = 0.0
+        for i in range(1, len(chain_nodes)):
+            a = tree.branchpoints[chain_nodes[i-1]].v
+            c = tree.branchpoints[chain_nodes[i]].v
+            if a is None or c is None:
+                seglen = 0.0
+            else:
+                va = a if isinstance(a, Vector) else Vector(a)
+                vc = c if isinstance(c, Vector) else Vector(c)
+                seglen = (vc - va).length
+            cum += float(seglen)
+            dists[i] = cum
+        total = dists[-1] if dists else 0.0
+
+        if total <= 0.0:
+            # fallback: uniform steps
+            total = float(max(1, len(chain_nodes)-1))
+            dists = [float(i) for i in range(len(chain_nodes))]
+
+        start_radius = radii_abs[chain_nodes[0]]
+        # End radius should be the maximum radius of children at the branching node that starts the chain
+        end_radius = max(radii_abs[c] for c in children)
+
+        # Interpolate from start_radius to end_radius along the chain
+        for i, node in enumerate(chain_nodes):
+            t = (dists[i] / total) if total > 0 else 1.0
+            # cosine-eased interpolation for smoother falloff
+            t_ease = 0.5 - 0.5 * cos(np.pi * t)
+            desired = (1.0 - t_ease) * start_radius + t_ease * end_radius
+            # Only reduce radius towards desired to avoid conflicts if chains overlap
+            radii_abs[node] = min(radii_abs[node], desired)
+    
+    return radii_abs
+
+
+def compute_tree_radii(tree, trunk_radius, radius_exponent, index2position):
+    """
+    Main function to compute tree radii using Da Vinci's law and smoothing.
+    Returns the computed radii array.
+    """
+    n_nodes = len(tree.branchpoints)
+    node_to_children = create_inverse_graph(tree.branchpoints)
+
+    # Fallback: ensure every node key exists
+    for i in range(n_nodes):
+        if i not in node_to_children:
+            node_to_children[i] = []
+
+    # Find root index in current, pruned list
+    root_idx = next((bp.index for bp in tree.branchpoints if bp.parent is None), 0)
+
+    # Compute radii using Da Vinci's law
+    radii_abs = compute_radii_da_vinci(tree, trunk_radius, radius_exponent, node_to_children, root_idx)
+
+    # Build parent index map in current pruned indexing
+    parent_idx: list[int | None] = [None] * n_nodes
+    for n, bp in enumerate(tree.branchpoints):
+        parent_idx[n] = None if (bp.parent is None) else index2position.get(bp.parent, None)
+
+    # Apply smoothing along unary chains
+    radii_abs = smooth_radii_along_unary_chains(tree, radii_abs, node_to_children, parent_idx)
+    
+    return radii_abs
+
+
+def createGeometry(tree,
     nomodifiers=True, skinmethod='NATIVE', subsurface=False,
     bleaf=4.0,
     leafParticles='None',
@@ -343,14 +515,17 @@ def createGeometry(tree, power=0.5, scale=0.01,
     timeperf=True,
     addLeaves=False,
     prune=0,
-    class_id=0):
+    class_id=0,
+    radius_exponent=2.0,
+    trunk_radius=0.25,
+    taper_per_meter=0.02):
 
     if particlesettings is None and leafParticles != 'None':
         raise ValueError("No particlesettings available, cannot create leaf particles")
 
     timings = Timer()
 
-    p=bpy.context.scene.cursor.location
+    tree_position=bpy.context.scene.cursor.location.copy()
     verts=[]
     edges=[]
     faces=[]
@@ -366,11 +541,16 @@ def createGeometry(tree, power=0.5, scale=0.01,
 
     for n,bp in enumerate(tree.branchpoints):
         #print(n, bp.index, bp.v, bp.generation, bp.parent)
-        verts.append(bp.v+p)
-        radii.append(bp.connections)
+        if bp.v is None:
+            raise RuntimeError(f"Branchpoint {n} has no position (v=None)")
+        v_bp = bp.v if isinstance(bp.v, Vector) else Vector(bp.v)
+        verts.append(v_bp + tree_position)
+        # placeholder; will be computed from children using the radius rule
+        radii.append(0.0)
         if not (bp.parent is None) :
-            #print(bp.parent,index2position[bp.parent])
-            edges.append((len(verts)-1,index2position[bp.parent]))
+            parent_mapped = index2position.get(bp.parent, None)
+            if parent_mapped is not None:
+                edges.append((len(verts)-1, parent_mapped))
         else :
             nv=len(verts)
             roots.add(bp)
@@ -378,11 +558,14 @@ def createGeometry(tree, power=0.5, scale=0.01,
 
     timings.add('skeleton')
 
+    # Compute tree radii using Da Vinci's law and smoothing
+    radii_abs = compute_tree_radii(tree, trunk_radius, radius_exponent, index2position)
+
     # native skinning method
     if nomodifiers == False and skinmethod == 'NATIVE':
         # add a quad edge loop to all roots
         for r in roots:
-            simpleskin(r, verts, faces, radii, power, scale, p)
+            simpleskin(r, verts, faces, radii_abs, tree_position)
 
     # end of native skinning section
     timings.add('nativeskin')
@@ -425,7 +608,7 @@ def createGeometry(tree, power=0.5, scale=0.01,
             skinverts = bpy.context.active_object.data.skin_vertices[0].data
 
             for i,v in enumerate(skinverts):
-                vert_radius = radii[i]**power * scale
+                vert_radius = radii_abs[i]
                 v.radius = [vert_radius, vert_radius]
                 if i in roots:
                     v.use_root = True
@@ -437,15 +620,13 @@ def createGeometry(tree, power=0.5, scale=0.01,
     timings.add('modifiers')
     # create a particles based leaf emitter (if we have leaves and/or objects)
     # bpy.context.scene.objects.active = obj_new
-    obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, (np.array(radii)**power)*scale)
+    obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, np.array(radii_abs))
     bpy.ops.object.shade_smooth()
 
     obj_processed["class_id"] = class_id
     obj_processed.name = f"Tree_{obj_processed['class_id']}"
 
-    radii = np.array(radii)**power*scale
-
-    converted_qsm = convert_sca_skeleton_to_qsm(tree, radii)
+    converted_qsm = convert_sca_skeleton_to_qsm(tree, np.array(radii_abs))
     qsm_path = os.path.join(os.path.dirname(__file__), 'leafgen', 'src', 'example-data', 'generated_tree.mat')
     # Read leaf parameters from the tree configuration json (defaults provided upstream)
     leaf_params = getattr(tree, 'leaf_params', None)
@@ -637,8 +818,6 @@ class SCATree():
                 killDistance=0.1,
                 influenceRange=15.,
                 tropism=0.,
-                power=0.3,
-                scale=0.01,
                 useGroups=False,
                 crownGroup='None',
                 shadowGroup='None',
@@ -672,14 +851,14 @@ class SCATree():
                 apicalcontrolfalloff=1.0,
                 apicalcontroltiming=10,
                 context=None,
+                trunk_radius=0.25,
                 ):
         self.class_id = class_id
         self.internodeLength = interNodeLength
         self.killDistance = killDistance
         self.influenceRange = influenceRange
         self.tropism = tropism
-        self.power = power
-        self.scale = scale
+        self.trunk_radius = float(trunk_radius)
         self.useGroups = useGroups
         self.crownGroup = crownGroup
         self.shadowGroup = shadowGroup
@@ -814,7 +993,7 @@ class SCATree():
         self.leafParticles = next((k for k in particlesettings.keys() if k.startswith('LeavesAbstractSummer')), 'None')
 
         obj_new = createGeometry(
-            sca, self.power, self.scale,
+            sca,
             self.noModifiers, self.skinMethod, self.subSurface,
             self.bLeaf,
             self.leafParticles,
@@ -823,7 +1002,9 @@ class SCATree():
             self.emitterScale,
             self.timePerformance,
             self.pruningGen,
-            class_id=self.class_id
+            class_id=self.class_id,
+            radius_exponent=2.0,
+            trunk_radius=getattr(self, 'trunk_radius', 0.25)
         )
 
         if obj_new is None:
