@@ -475,10 +475,77 @@ def smooth_radii_along_unary_chains(tree, radii_abs, node_to_children, parent_id
     return radii_abs
 
 
-def compute_tree_radii(tree, trunk_radius, radius_exponent, index2position):
+def calculate_leaf_area_from_allometry(trunk_radius, tree_height, a=0.2, b=2.2, c=0.5):
+    """
+    Calculate leaf area using allometric formula: a * (DBH^b) * (H^c)
+    
+    Parameters:
+    - trunk_radius: radius of the trunk (in meters)
+    - tree_height: height of the tree (in meters)
+    - a: allometric coefficient (default: 0.2)
+    - b: DBH exponent (default: 2.2)
+    - c: height exponent (default: 0.5)
+    
+    Returns:
+    - leaf_area: calculated leaf area
+    """
+    # Convert radius to DBH (Diameter at Breast Height)
+    dbh = trunk_radius * 2.0
+    
+    # Apply allometric formula
+    leaf_area = a * (dbh ** b) * (tree_height ** c) * 100
+    
+    return leaf_area
+
+
+def get_trunk_nodes(branchpoints):
+    """
+    Get all trunk nodes by finding the top of the trunk and tracing back through the parent chain.
+    Returns a list of trunk nodes from top to root.
+    """
+    if not branchpoints:
+        return []
+    
+    # Find trunk nodes using the same logic as segmentIntoTrunkAndBranch
+    top = find_top_of_trunk(branchpoints)
+    trunk_nodes = [top]
+    
+    # Trace back through parent chain to get all trunk nodes
+    while trunk_nodes[-1].parent is not None:
+        trunk_nodes.append(branchpoints[trunk_nodes[-1].parent])
+    
+    return trunk_nodes
+
+
+def calculate_actual_tree_height(tree):
+    """
+    Calculate the actual height of the tree from the trunk nodes only.
+    Returns the height as the difference between the highest and lowest z-coordinates of trunk nodes.
+    """
+    if not tree.branchpoints:
+        return 0.0
+    
+    # Get trunk nodes
+    trunk_nodes = get_trunk_nodes(tree.branchpoints)
+    
+    # Extract z-coordinates from trunk nodes only
+    trunk_z_coords = []
+    for trunk_node in trunk_nodes:
+        if trunk_node.v is not None:
+            v_bp = trunk_node.v if isinstance(trunk_node.v, Vector) else Vector(trunk_node.v)
+            trunk_z_coords.append(v_bp.z)
+    
+    if not trunk_z_coords:
+        return 0.0
+    
+    return max(trunk_z_coords) - min(trunk_z_coords)
+
+
+def compute_tree_radii(tree, trunk_radius, radius_exponent, index2position, expected_height=None):
     """
     Main function to compute tree radii using Da Vinci's law and smoothing.
-    Returns the computed radii array.
+    Applies allometric scaling based on actual vs expected tree height.
+    Returns the computed radii array and the scaled trunk radius.
     """
     n_nodes = len(tree.branchpoints)
     node_to_children = create_inverse_graph(tree.branchpoints)
@@ -491,8 +558,19 @@ def compute_tree_radii(tree, trunk_radius, radius_exponent, index2position):
     # Find root index in current, pruned list
     root_idx = next((bp.index for bp in tree.branchpoints if bp.parent is None), 0)
 
+    # Apply allometric scaling if expected height is provided
+    scaled_trunk_radius = trunk_radius
+    if expected_height is not None and expected_height > 0:
+        actual_height = calculate_actual_tree_height(tree)
+        if actual_height > 0:
+            # Allometric scaling: new_radius = trunk_radius * (height / expected_height)^0.75
+            height_ratio = actual_height / expected_height
+            scaled_trunk_radius = trunk_radius * (height_ratio ** 0.75)
+            print(f"Tree height scaling: expected={expected_height:.2f}, actual={actual_height:.2f}, "
+                  f"original_radius={trunk_radius:.4f}, scaled_radius={scaled_trunk_radius:.4f}")
+
     # Compute radii using Da Vinci's law
-    radii_abs = compute_radii_da_vinci(tree, trunk_radius, radius_exponent, node_to_children, root_idx)
+    radii_abs = compute_radii_da_vinci(tree, scaled_trunk_radius, radius_exponent, node_to_children, root_idx)
 
     # Build parent index map in current pruned indexing
     parent_idx: list[int | None] = [None] * n_nodes
@@ -502,7 +580,7 @@ def compute_tree_radii(tree, trunk_radius, radius_exponent, index2position):
     # Apply smoothing along unary chains
     radii_abs = smooth_radii_along_unary_chains(tree, radii_abs, node_to_children, parent_idx)
     
-    return radii_abs
+    return radii_abs, scaled_trunk_radius
 
 
 def createGeometry(tree,
@@ -518,7 +596,10 @@ def createGeometry(tree,
     class_id=0,
     radius_exponent=2.0,
     trunk_radius=0.25,
-    taper_per_meter=0.02):
+    taper_per_meter=0.02,
+    stem_height=0.0,
+    crown_height=0.0,
+    crown_offset=0.0):
 
     if particlesettings is None and leafParticles != 'None':
         raise ValueError("No particlesettings available, cannot create leaf particles")
@@ -558,8 +639,11 @@ def createGeometry(tree,
 
     timings.add('skeleton')
 
-    # Compute tree radii using Da Vinci's law and smoothing
-    radii_abs = compute_tree_radii(tree, trunk_radius, radius_exponent, index2position)
+    # Calculate expected height: stem_height + crown_height - crown_offset
+    expected_height = stem_height + crown_height - crown_offset
+
+    # Compute tree radii using Da Vinci's law and smoothing with allometric scaling
+    radii_abs, scaled_trunk_radius = compute_tree_radii(tree, trunk_radius, radius_exponent, index2position, expected_height)
 
     # native skinning method
     if nomodifiers == False and skinmethod == 'NATIVE':
@@ -628,8 +712,25 @@ def createGeometry(tree,
 
     converted_qsm = convert_sca_skeleton_to_qsm(tree, np.array(radii_abs))
     qsm_path = os.path.join(os.path.dirname(__file__), 'leafgen', 'src', 'example-data', 'generated_tree.mat')
+    
     # Read leaf parameters from the tree configuration json (defaults provided upstream)
     leaf_params = getattr(tree, 'leaf_params', None)
+    if leaf_params is None:
+        leaf_params = {}
+    else:
+        leaf_params = dict(leaf_params)  # Make a copy to avoid modifying the original
+    
+    # Calculate leaf area using allometric formula based on trunk radius and tree height
+    # Use the scaled trunk radius from the allometric scaling and the expected height
+    calculated_leaf_area = calculate_leaf_area_from_allometry(
+        trunk_radius=scaled_trunk_radius,
+        tree_height=expected_height
+    )
+    
+    # Override the totalLeafArea parameter with the calculated value
+    leaf_params['totalLeafArea'] = calculated_leaf_area
+    print(f"Calculated leaf area: {calculated_leaf_area:.2f} for tree with trunk_radius={trunk_radius:.4f}, scaled_radius={scaled_trunk_radius:.4f}, height={expected_height:.2f}")
+    
     generate_foliage(converted_qsm, qsm_path, execute_matlab=True, leaf_params=leaf_params)
     timings.add('leaves')
 
@@ -724,15 +825,9 @@ def add_leaves_to_tree(tree, leave_nodes, obj_new):
     leaf_obj.parent = obj_new
 
 def segmentIntoTrunkAndBranch(tree, obj_new, radii):
-    top = find_top_of_trunk(tree.branchpoints)
-
-    trunk_nodes = [top]
-    trunk_indices = [top.index]
-
-    while trunk_nodes[-1].parent is not None:
-        trunk_nodes.append(tree.branchpoints[trunk_nodes[-1].parent])
-        trunk_indices.append(trunk_nodes[-1].index)
-
+    # Get trunk nodes using the shared function
+    trunk_nodes = get_trunk_nodes(tree.branchpoints)
+    trunk_indices = [trunk_node.index for trunk_node in trunk_nodes]
 
     trunk_node_positions = [trunk_node.v for trunk_node in trunk_nodes]
     branch_node_positions = [bp.v for bp in tree.branchpoints if bp not in trunk_nodes and bp.apex is not None]
@@ -1004,7 +1099,10 @@ class SCATree():
             self.pruningGen,
             class_id=self.class_id,
             radius_exponent=2.0,
-            trunk_radius=getattr(self, 'trunk_radius', 0.25)
+            trunk_radius=getattr(self, 'trunk_radius', 0.25),
+            stem_height=getattr(self, 'stem_height', 0.0),
+            crown_height=getattr(self, 'crown_height', 0.0),
+            crown_offset=getattr(self, 'crown_offset', 0.0)
         )
 
         if obj_new is None:

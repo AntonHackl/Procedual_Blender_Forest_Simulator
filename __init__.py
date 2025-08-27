@@ -347,7 +347,7 @@ class ForestGenerator(bpy.types.Operator):
             model_obj = vegetation_models[model_name]
             
             # Check if position would cause collision with existing trees
-            if self.is_too_close_to_trees(pos, model_obj, vegetation_bboxes, tree_bboxes):
+            if self.is_too_close_to_trees(pos, model_name, vegetation_bboxes, tree_bboxes):
                 continue
             
             # Create instance
@@ -445,20 +445,18 @@ class ForestGenerator(bpy.types.Operator):
         
         # Create new material
         mat = bpy.data.materials.new(name=mat_name)
-        mat.use_nodes = True
-        
-        # Get the Principled BSDF node
-        bsdf = mat.node_tree.nodes.get("Principled BSDF")
-        if bsdf:
-            # Set dark green color
-            bsdf.inputs['Base Color'].default_value = (0.1, 0.3, 0.1, 1.0)
-        
+        mat.diffuse_color = (0.1, 0.3, 0.1, 1.0)
+
         return mat
     
-    def is_too_close_to_trees(self, pos, vegetation_obj, vegetation_bboxes, tree_bboxes):
+    def is_too_close_to_trees(self, pos, model_name, vegetation_bboxes, tree_bboxes):
         """Check if vegetation object would collide with existing trees using pre-calculated bounding boxes."""
+        vegetation_bbox = vegetation_bboxes.get(model_name)
+        if not vegetation_bbox:
+            return False  # If no bbox data, allow placement
+            
         for tree_name, tree_bbox in tree_bboxes.items():
-            if self.check_bbox_collision(vegetation_obj, pos, tree_bbox):
+            if self.check_bbox_collision(vegetation_bbox, pos, tree_bbox):
                 return True
         return False
     
@@ -535,24 +533,16 @@ class ForestGenerator(bpy.types.Operator):
         
         return tree_bboxes
     
-    def check_bbox_collision(self, vegetation_obj, vegetation_pos, tree_bbox):
+    def check_bbox_collision(self, vegetation_bbox, vegetation_pos, tree_bbox):
         """Check collision between vegetation and pre-calculated tree bounding box."""
         try:
-            # Get vegetation bounding box at the test position
-            veg_bbox_corners = [vegetation_obj.matrix_world @ Vector(corner) for corner in vegetation_obj.bound_box]
-            offset = Vector(vegetation_pos) - vegetation_obj.location
-            veg_bbox_corners = [corner + offset for corner in veg_bbox_corners]
+            # Calculate vegetation bounding box at the test position
+            # Use the pre-calculated bbox dimensions and translate to the new position
+            bbox_size = vegetation_bbox['max'] - vegetation_bbox['min']
+            pos_vector = Vector(vegetation_pos)
             
-            veg_min = Vector((
-                min(corner.x for corner in veg_bbox_corners),
-                min(corner.y for corner in veg_bbox_corners),
-                min(corner.z for corner in veg_bbox_corners)
-            ))
-            veg_max = Vector((
-                max(corner.x for corner in veg_bbox_corners),
-                max(corner.y for corner in veg_bbox_corners),
-                max(corner.z for corner in veg_bbox_corners)
-            ))
+            veg_min = pos_vector - bbox_size * 0.5
+            veg_max = pos_vector + bbox_size * 0.5
             
             # Check if bounding boxes overlap
             return not (
