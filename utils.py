@@ -2,6 +2,8 @@ from os import remove
 from os.path import exists, join
 from zipfile import ZipFile
 import bpy
+from collections import defaultdict
+from typing import Dict, List
 
 def extract(zipfile, name, dest):
     zf = zipfile + '.zip'
@@ -100,3 +102,10 @@ def get_vertex_group(context, name):
         vg = ob.vertex_groups.active
         vg.name = name  # Rename the new group to the desired name
         return vg
+
+def create_inverse_graph(branchpoints) -> Dict[int, List[int]]:
+    node_to_children = defaultdict(list)
+    for bp in branchpoints:
+        if bp.parent is not None:
+            node_to_children[bp.parent].append(bp.index)
+    return node_to_children

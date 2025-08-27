@@ -1,160 +1,167 @@
-from typing import Tuple, List
+from typing import Tuple, List, Union, Dict, Any
 import numpy as np
 import random
-import triangle
-from shapely.geometry import Polygon, Point
+import bpy
+from mathutils import Vector
 
-def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], configuration_weights, crown_widths, k=30):
+def poisson_disk_sampling_on_surface(
+  surface: bpy.types.Object,
+  configuration_weights: List[float],
+  base_configurations: List[Dict[str, Any]],
+  k: int = 30
+) -> List[Tuple[Tuple[float, float, float], Dict[str, Any]]]:
   """
-  Generates a set of points on a surface using Poisson disk sampling, ensuring that points are not too close to each other
-  based on a distance threshold influenced by crown widths and configuration weights.
-  
-  :param surface: A list of tuples representing the vertices of the polygonal surface where points will be sampled.
-  :type surface: List[Tuple[int, int]]
-  :param configuration_weights: A list of weights used to randomly select configurations for the points.
-  :type configuration_weights: List[float]
-  :param crown_widths: A list of crown widths corresponding to each configuration, used to calculate distance thresholds.
-  :type crown_widths: List[float]
-  :param k: The number of attempts to generate a valid point around an existing point before marking it as inactive.
-  :type k: int, optional
-  :return: A list of tuples, where each tuple contains the coordinates of a point and its associated configuration index.
-  :rtype: List[Tuple[Tuple[float, float], int]]
+  Generate Poisson-disc distributed tree positions on a terrain mesh.
+
+  Approach: run 2D Poisson-disc in XY over the mesh's world-space bounding box,
+  then ray-cast from above to determine Z on the mesh. Distance constraints use
+  a configuration-dependent radius derived from crown widths.
+
+  - surface: Blender mesh object (ANT Landscape terrain)
+  - configuration_weights: sampling weights for choosing a tree configuration per point
+  - base_configurations: list of tree configuration dicts (values may be [mean, std])
+  - k: attempts per active point
+  Returns: list of ((x, y, z), sampled_config_dict)
   """
   
-  def random_point_in_triangle(v1, v2, v3):
-    """
-    Generates a random point within a triangle defined by three vertices.
-    
-    :param v1: The first vertex of the triangle as a tuple (x, y).
-    :type v1: Tuple[float, float]
-    :param v2: The second vertex of the triangle as a tuple (x, y).
-    :type v2: Tuple[float, float]
-    :param v3: The third vertex of the triangle as a tuple (x, y).
-    :type v3: Tuple[float, float]
-    :return: A random point within the triangle as a tuple (x, y).
-    :rtype: Tuple[float, float]
-    """
-    
-    
-    r1, r2 = random.random(), random.random()
-    sqrt_r1 = np.sqrt(r1)
-    u = 1 - sqrt_r1
-    v = sqrt_r1 * (1 - r2)
-    w = sqrt_r1 * r2
-    x = u * v1[0] + v * v2[0] + w * v3[0]
-    y = u * v1[1] + v * v2[1] + w * v3[1]
-    return (x, y)
-  
-  def random_point_in_polygon(surface: Polygon):
-    """
-    Generates a uniformly random point within a given polygon by triangulating the polygon.
-    
-    :param surface: A polygon within which a random point is to be generated.
-    :type surface: Polygon
-    :return: A random point within the given polygon.
-    :rtype: Tuple[float, float]
-    """
-    
-    for_triangulate = {
-      'vertices': surface.exterior.coords[:-1],
-      'segments': [[i, (i+1)%(len(surface.exterior.coords)-1)] for i in range(len(surface.exterior.coords)-1)]
-    }
-    triangulated = triangle.triangulate(for_triangulate, 'p')
-    triangles = [[surface.exterior.coords[int(i)] for i in tri] for tri in triangulated['triangles']]
-    areas = []
-    tri_list = []
-    for tri in triangles:
-        v1, v2, v3 = tri[0], tri[1], tri[2]
-        area = 0.5 * abs((v2[0] - v1[0]) * (v3[1] - v1[1]) - (v3[0] - v1[0]) * (v2[1] - v1[1]))
-        areas.append(area)
-        tri_list.append((v1, v2, v3))
-    
-    chosen_triangle = random.choices(tri_list, weights=areas, k=1)[0]
-    
-    return random_point_in_triangle(*chosen_triangle)
 
-  def too_near_to_sample(point, points):
-    """
-    Determines if a given point is too close to any existing points based on a distance threshold function 
-    calculated using crown widths.
-    
-    :param point: A tuple containing the coordinates of the point and its associated index.
-            Format: ((x, y), index)
-    :type point: Tuple[Tuple[float, float], int]
-    :param points: A list of tuples, where each tuple contains the coordinates of a point and its associated index.
-             Format: [((x, y), index), ...]
-    :type points: List[Tuple[Tuple[float, float], int]]
-    :return: True if the given point is too close to any existing points, False otherwise.
-    :rtype: bool
-    """
-    
-    return any(
-      np.linalg.norm(np.asarray([point[0][0], point[0][1]]) 
-        - np.asarray([[neighbor_point[0][0], neighbor_point[0][1]] for neighbor_point in points]), axis=1) 
-      <= np.array([max(crown_widths[neighbor_point[1]], crown_widths[point[1]]) / 2 + 
-                   min(crown_widths[neighbor_point[1]], crown_widths[point[1]]) * 0.2 for neighbor_point in points])
-    )
 
-  def generate_random_point_around(point, new_configuration_index):
-    """
-    Generates a random disk around an existing disk. The new disk is calculated using a random radius and angle, 
-    influenced by the crown widths of the given point and the new configuration index.
-    
-    :param point: A tuple containing the position and index of the current point. The position is a tuple of (x, y) coordinates.
-    :type point: Tuple[Tuple[float, float], int]
-    :param new_configuration_index: The index of the new configuration used to determine the crown width.
-    :type new_configuration_index: int
-    :return: A tuple representing the (x, y) coordinates of the newly generated point.
-    :rtype: Tuple[float, float]
-    """
-    
-    r1 = random.random()
-    r2 = random.random()
-    radius = (max(
-      crown_widths[point[1]],
-      crown_widths[new_configuration_index]
-    ) / 2
-    + min(
-      crown_widths[point[1]],
-      crown_widths[new_configuration_index]
-    ) * 0.2) * (r1 + 1)
-    angle = 2 * np.pi * r2
-    position = point[0]
-    new_x = position[0] + radius * np.cos(angle)
-    new_y = position[1] + radius * np.sin(angle)
-    return (new_x, new_y)
-  
-  def chooseRandomConfiguration():
-    """
-    Selects a random configuration index based on the provided configuration weights.
-    :return: The index of the selected configuration.
-    :rtype: int
-    """
-    
-    return random.choices(range(len(configuration_weights)), weights=configuration_weights, k=1)[0]
-  
-  active_list: List[Tuple[Tuple[float, float], int]] = []
-  points: List[Tuple[Tuple[float, float], int]] = []
-
-  if surface == []:
+  if not surface or surface.type != 'MESH':
     return []
-  
-  polygon = Polygon(surface)
-  initial_position = random_point_in_polygon(polygon)
-  configuration_index = chooseRandomConfiguration()
-  initial_point = (initial_position, configuration_index)
-  points.append(initial_point)
-  active_list.append(initial_point)
+
+  obj: bpy.types.Object = surface
+  mw = obj.matrix_world
+  verts_world: List[Vector] = [mw @ v.co for v in obj.data.vertices]
+  if not verts_world:
+    return []
+
+  min_x = min(v.x for v in verts_world)
+  max_x = max(v.x for v in verts_world)
+  min_y = min(v.y for v in verts_world)
+  max_y = max(v.y for v in verts_world)
+  max_z = max(v.z for v in verts_world)
+
+  # Sampling helpers mirror logic from caller
+  _int_keys = {"numberOfEndpoints", "maxIterations"}
+  _positive_float_keys = {
+    "interNodeLength", "influenceRange", "stem_height",
+    "stem_diameter", "crown_width", "crown_height", "surface_bias",
+    "top_bias", "trunk_radius"
+  }
+
+  def _is_mean_std_list(value: Any) -> bool:
+    try:
+      return isinstance(value, (list, tuple)) and len(value) == 2 and all(isinstance(x, (int, float)) for x in value)
+    except Exception:
+      return False
+
+  def _sample_value(key: str, value: float | int | str | dict) -> Any:
+    if isinstance(value, dict):
+      return value
+    if isinstance(value, str):
+      return value
+    if _is_mean_std_list(value):
+      mean, std = float(value[0]), max(float(value[1]), 0.0)
+      sampled = random.gauss(mean, std) if std > 0 else mean
+    else:
+      sampled = value
+    if key in _int_keys:
+      try:
+        sampled = int(round(float(sampled)))
+      except Exception:
+        sampled = int(0)
+      if key == "numberOfEndpoints":
+        sampled = max(1, sampled)
+      if key == "maxIterations":
+        sampled = max(1, sampled)
+      return sampled
+    if key in _positive_float_keys:
+      try:
+        sampled = float(sampled)
+      except Exception:
+        sampled = 0.0
+      sampled = max(1e-8, sampled)
+      return sampled
+    return sampled
+
+  def _sample_configuration(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    sampled: Dict[str, Any] = {}
+    for k, v in cfg.items():
+      if k == 'leaf_params':
+        sampled[k] = v
+      else:
+        sampled[k] = _sample_value(k, v)
+    return sampled
+
+  def choose_config() -> Dict[str, Any]:
+    idx = random.choices(range(len(configuration_weights)), weights=configuration_weights, k=1)[0]
+    return _sample_configuration(base_configurations[idx])
+
+  def min_distance(cfg_a: Dict[str, Any], cfg_b: Dict[str, Any]) -> float:
+    cw_a = float(cfg_a.get('crown_width', 1.0))
+    cw_b = float(cfg_b.get('crown_width', 1.0))
+    return max(cw_a, cw_b) / 2.0 + min(cw_a, cw_b) * 0.2
+
+  def generate_candidate_xy(center_xy: Tuple[float, float], base_r: float) -> Tuple[float, float]:
+    r = base_r * (1.0 + random.random())  # between R and 2R
+    theta = 2.0 * np.pi * random.random()
+    return (center_xy[0] + r * np.cos(theta), center_xy[1] + r * np.sin(theta))
+
+  def raycast_to_surface(x: float, y: float) -> Union[Tuple[float, float, float], None]:
+    origin = Vector((x, y, max_z + 100.0))
+    direction = Vector((0.0, 0.0, -1.0))
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_obj = obj.evaluated_get(depsgraph)
+    hit, location, normal, index = eval_obj.ray_cast(origin, direction)
+    if hit:
+      return (float(location.x), float(location.y), float(location.z))
+    return None
+
+  # storage with type annotations
+  active_list: List[Tuple[Tuple[float, float, float], Dict[str, Any]]] = []
+  points: List[Tuple[Tuple[float, float, float], Dict[str, Any]]] = []
+
+  # seed with an initial valid point
+  for _ in range(1000):
+    sx = random.uniform(min_x, max_x)
+    sy = random.uniform(min_y, max_y)
+    hit = raycast_to_surface(sx, sy)
+    if hit is None:
+      continue
+    ci = choose_config()
+    initial = (hit, ci)
+    points.append(initial)
+    active_list.append(initial)
+    break
+  if not active_list:
+    return []
+
+  def too_near(new_point: Tuple[Tuple[float, float, float], Dict[str, Any]], others: List[Tuple[Tuple[float, float, float], Dict[str, Any]]]) -> bool:
+    if not others:
+      return False
+    p = np.asarray(new_point[0])
+    q = np.asarray([np.array([pp[0][0], pp[0][1], pp[0][2]]) for pp in others])
+    dists = np.linalg.norm(q - p, axis=1)
+    cfg_new = new_point[1]
+    radii = [min_distance(cfg_new, pp[1]) for pp in others]
+    return np.any(dists <= np.array(radii))
 
   while active_list:
     idx = random.randint(0, len(active_list) - 1)
     point = active_list[idx]
     found = False
+    center_xy = (point[0][0], point[0][1])
     for _ in range(k):
-      new_configuration = chooseRandomConfiguration()
-      new_position = generate_random_point_around(point, new_configuration)
-      new_point = (new_position, new_configuration)
-      if polygon.contains(Point(new_position)) and not too_near_to_sample(new_point, points):
+      new_cfg = choose_config()
+      base_r = min_distance(point[1], new_cfg)
+      cx, cy = generate_candidate_xy(center_xy, base_r)
+      if cx < min_x or cx > max_x or cy < min_y or cy > max_y:
+        continue
+      hit = raycast_to_surface(cx, cy)
+      if hit is None:
+        continue
+      new_point = (hit, new_cfg)
+      if not too_near(new_point, points):
         points.append(new_point)
         active_list.append(new_point)
         found = True
@@ -162,4 +169,101 @@ def poisson_disk_sampling_on_surface(surface: List[Tuple[int, int]], configurati
     if not found:
       active_list.pop(idx)
 
-  return points
+  return points[:7]
+
+
+def poisson_disk_sampling_low_vegetation(
+    surface: bpy.types.Object,
+    density: float = 1.0,
+    k: int = 30
+) -> List[Tuple[float, float, float]]:
+    """
+    Generate Poisson-disc distributed low vegetation positions on a terrain mesh.
+    
+    - surface: Blender mesh object (terrain)
+    - density: density factor for vegetation placement (higher = more dense)
+    - k: attempts per active point
+    Returns: list of (x, y, z) positions
+    """
+    
+    if not surface or surface.type != 'MESH':
+        return []
+
+    obj: bpy.types.Object = surface
+    mw = obj.matrix_world
+    verts_world: List[Vector] = [mw @ v.co for v in obj.data.vertices]
+    if not verts_world:
+        return []
+
+    min_x = min(v.x for v in verts_world)
+    max_x = max(v.x for v in verts_world)
+    min_y = min(v.y for v in verts_world)
+    max_y = max(v.y for v in verts_world)
+    max_z = max(v.z for v in verts_world)
+
+    # Base radius for low vegetation (adjust based on typical vegetation size)
+    base_radius = 0.5 / density  # Smaller radius for higher density
+
+    def generate_candidate_xy(center_xy: Tuple[float, float], r: float) -> Tuple[float, float]:
+        radius = r * (1.0 + random.random())  # between R and 2R
+        theta = 2.0 * np.pi * random.random()
+        return (center_xy[0] + radius * np.cos(theta), center_xy[1] + radius * np.sin(theta))
+
+    def raycast_to_surface(x: float, y: float) -> Union[Tuple[float, float, float], None]:
+        origin = Vector((x, y, max_z + 100.0))
+        direction = Vector((0.0, 0.0, -1.0))
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        eval_obj = obj.evaluated_get(depsgraph)
+        hit, location, normal, index = eval_obj.ray_cast(origin, direction)
+        if hit:
+            return (float(location.x), float(location.y), float(location.z))
+        return None
+
+    # Storage
+    active_list: List[Tuple[float, float, float]] = []
+    points: List[Tuple[float, float, float]] = []
+
+    # Seed with an initial valid point
+    for _ in range(1000):
+        sx = random.uniform(min_x, max_x)
+        sy = random.uniform(min_y, max_y)
+        hit = raycast_to_surface(sx, sy)
+        if hit is None:
+            continue
+        points.append(hit)
+        active_list.append(hit)
+        break
+    
+    if not active_list:
+        return []
+
+    def too_near(new_point: Tuple[float, float, float], others: List[Tuple[float, float, float]]) -> bool:
+        if not others:
+            return False
+        p = np.asarray(new_point)
+        q = np.asarray(others)
+        dists = np.linalg.norm(q - p, axis=1)
+        return np.any(dists <= base_radius)
+
+    while active_list:
+        idx = random.randint(0, len(active_list) - 1)
+        point = active_list[idx]
+        found = False
+        center_xy = (point[0], point[1])
+        
+        for _ in range(k):
+            cx, cy = generate_candidate_xy(center_xy, base_radius)
+            if cx < min_x or cx > max_x or cy < min_y or cy > max_y:
+                continue
+            hit = raycast_to_surface(cx, cy)
+            if hit is None:
+                continue
+            if not too_near(hit, points):
+                points.append(hit)
+                active_list.append(hit)
+                found = True
+                break
+        if not found:
+            active_list.pop(idx)
+
+    return points

@@ -1,15 +1,20 @@
 {
   "numberOfEndpoints": 800,
   "interNodeLength": 0.4,
-  "stem_height": 10,
+  "influenceRange": 40,
+  "stem_height": 15,
   "stem_diameter": 1,
   "crown_type": "ellipsoid",
-  "crown_width": 7,
-  "crown_height": 9,
-  "crown_offset": 5,
+  "crown_width": 15,
+  "crown_height": 7,
+  "crown_offset": 4,
+  "surface_bias": 1.5,
+  "top_bias": 1,
   "scale": 0.04,
-  "leaf_density": [
-    0.4,
-    0.5
-  ]
+  "leaf_params": {
+    "pLADDh": [8, 3],
+    "pLADDd": [2.0, 1.5],
+    "fun_pLSD": [0.008, 0.0000625],
+    "totalLeafArea": 20
+  }
 }
