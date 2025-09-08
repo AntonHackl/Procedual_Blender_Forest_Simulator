@@ -122,6 +122,7 @@ def set_gpu_backend():
     preferences.scanning_backend_type = "GPUScanningBackend"
     
     gpu_settings = preferences.GPUScanningBackendSettings
+    # gpu_settings.camera_type = "ScannerGPUCamera"
     gpu_settings.camera_type = "PanoramaGPUCamera"
     
     print(f"Backend set to: {preferences.scanning_backend_type}")
@@ -209,8 +210,8 @@ if __name__ == "__main__":
         exit()
 
     check_available_backends()
-    # set_gpu_backend()
-    set_cpu_backend()
+    set_gpu_backend()
+    # set_cpu_backend()
     # if not set_las_writer():
     #     print("Failed to set LAS writer")
     #     exit()

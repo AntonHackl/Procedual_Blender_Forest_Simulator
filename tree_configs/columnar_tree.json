@@ -12,6 +12,10 @@
   "surface_bias": [2.5, 0.2],
   "top_bias": [2.0, 0.2],
   "tropism": [-0.02, 0.005],
+  "trunk_radius_scaling": 0.75,
+  "leaf_area_scaling": 0.2,
+  "leaf_area_dbh_scaling": 2.2,
+  "leaf_area_height_scaling": 0.5,
   "leaf_params": {
     "pLADDh": [8, 3],
     "pLADDd": [2.0, 1.5],

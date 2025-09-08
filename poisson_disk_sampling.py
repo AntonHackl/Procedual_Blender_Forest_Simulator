@@ -169,7 +169,7 @@ def poisson_disk_sampling_on_surface(
     if not found:
       active_list.pop(idx)
 
-  return points[:7]
+  return points[:20]
 
 
 def poisson_disk_sampling_low_vegetation(

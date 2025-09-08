@@ -2,6 +2,11 @@ import sys
 
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python311\\site-packages")
 from .leaf_generation import MatlabEngineProvider
+from .parallel_leaf_generation import (
+    ParallelLeafGenerator, 
+    ParallelLeafTask, 
+    import_parallel_leaf_results
+)
 
 import time
 import gc
@@ -83,6 +88,13 @@ class ForestGenerator(bpy.types.Operator):
         min=0.1,
         max=10.0
     )
+    max_concurrent_trees: bpy.props.IntProperty(
+        name="Max Concurrent Trees",
+        description="Maximum number of trees to generate concurrently (parallel crown generation). Higher values use more CPU/memory but reduce generation time. Recommended: 2-8 depending on your system.",
+        default=4,
+        min=1,
+        max=16
+    )
 
     voxel_model_related_configuration_fields = {
         # "stem_height",
@@ -126,6 +138,7 @@ class ForestGenerator(bpy.types.Operator):
         box.label(text="Generation Settings:")
         box.prop_search(self, 'surface_object_name', bpy.data, 'objects', text='Surface Object')
         box.prop(self, 'low_vegetation_density', text='Low Vegetation Density')
+        box.prop(self, 'max_concurrent_trees', text='Max Concurrent Trees')
         box.prop(self, 'treeConfigurationCount')
 
         for i, tree_config in enumerate(self.tree_configurations):
@@ -262,22 +275,61 @@ class ForestGenerator(bpy.types.Operator):
                     print(f"All trees finished growing after {gen + 1} generations ({final_progress}% complete)")
                     break
 
+        # First phase: Generate all tree meshes (without leaves)
+        finalized_trees = []
+        parallel_leaf_tasks = []
+        tree_locations = {}
+        
+        print("Phase 1: Generating tree meshes...")
         for t in prepared_trees:
             try: 
                 bpy.context.scene.cursor.location = t.location
                 bpy.context.view_layer.update()
-                sca_tree_mesh = t.generator.finalize_tree(context)
+                sca_tree_mesh, (converted_qsm, leaf_params) = t.generator.finalize_tree(context)
                 if sca_tree_mesh is None:
                     continue
                 sca_tree_mesh.location = t.location
+                finalized_trees.append(sca_tree_mesh)
+                
+                # Store tree location for leaf import
+                tree_locations[t.index] = t.location
+                
+                # Check if tree has QSM data and leaf params for parallel processing
+                if converted_qsm is not None and leaf_params is not None:
+                    parallel_leaf_tasks.append(ParallelLeafTask(
+                        tree_id=t.index,
+                        qsm=converted_qsm,
+                        leaf_params=leaf_params,
+                        tree_location=(t.location.x, t.location.y, t.location.z)
+                    ))
+                
                 elapsed_time = time.time() - t.start_time
                 i = t.index
-                print(f"{i+1} out of {len(prepared_trees)} trees generated at {t.pos} in {elapsed_time:.2f} seconds")
+                print(f"{i+1} out of {len(prepared_trees)} tree meshes generated at {t.pos} in {elapsed_time:.2f} seconds")
             except Exception as e:
                 print(f"Error generating tree {t.index} at {t.pos}: {e}")
+                # Attempt to delete the tree object from the scene if it exists
+                tree_obj_name = f"Tree_{t.index}"
+                tree_obj = bpy.data.objects.get(tree_obj_name)
+                if tree_obj is not None:
+                    bpy.data.objects.remove(tree_obj, do_unlink=True)
 
-        matlab_engine_provider = MatlabEngineProvider()
-        matlab_engine_provider.quit_engine()
+        # Second phase: Generate leaves in parallel
+        if parallel_leaf_tasks:
+            print(f"Phase 2: Generating leaves for {len(parallel_leaf_tasks)} trees in parallel...")
+            with ParallelLeafGenerator(max_workers=self.max_concurrent_trees) as leaf_generator:
+                leaf_results = leaf_generator.generate_leaves_parallel(parallel_leaf_tasks)
+                
+                # Import all successful leaf results
+                import_parallel_leaf_results(leaf_results, tree_locations)
+        
+        # Clean up any remaining singleton MATLAB engine (shouldn't be needed now)
+        try:
+            matlab_engine_provider = MatlabEngineProvider()
+            if matlab_engine_provider.is_engine_running():
+                matlab_engine_provider.quit_engine()
+        except Exception as e:
+            print(f"Error cleaning up singleton MATLAB engine: {e}")
 
         self.updateForest = False
         bpy.context.scene.cursor.location = original_cursor_location

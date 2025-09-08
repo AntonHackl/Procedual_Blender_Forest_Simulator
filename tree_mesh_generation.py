@@ -475,16 +475,16 @@ def smooth_radii_along_unary_chains(tree, radii_abs, node_to_children, parent_id
     return radii_abs
 
 
-def calculate_leaf_area_from_allometry(trunk_radius, tree_height, a=0.2, b=2.2, c=0.5):
+def calculate_leaf_area_from_allometry(trunk_radius, tree_height, leaf_area_scaling=0.2, leaf_area_dbh_scaling=2.2, leaf_area_height_scaling=0.5):
     """
-    Calculate leaf area using allometric formula: a * (DBH^b) * (H^c)
+    Calculate leaf area using allometric formula: leaf_area_scaling * (DBH^leaf_area_dbh_scaling) * (H^leaf_area_height_scaling)
     
     Parameters:
     - trunk_radius: radius of the trunk (in meters)
     - tree_height: height of the tree (in meters)
-    - a: allometric coefficient (default: 0.2)
-    - b: DBH exponent (default: 2.2)
-    - c: height exponent (default: 0.5)
+    - leaf_area_scaling: allometric coefficient (default: 0.2)
+    - leaf_area_dbh_scaling: DBH exponent (default: 2.2)
+    - leaf_area_height_scaling: height exponent (default: 0.5)
     
     Returns:
     - leaf_area: calculated leaf area
@@ -493,7 +493,7 @@ def calculate_leaf_area_from_allometry(trunk_radius, tree_height, a=0.2, b=2.2, 
     dbh = trunk_radius * 2.0
     
     # Apply allometric formula
-    leaf_area = a * (dbh ** b) * (tree_height ** c) * 100
+    leaf_area = leaf_area_scaling * (dbh ** leaf_area_dbh_scaling) * (tree_height ** leaf_area_height_scaling) * 100
     
     return leaf_area
 
@@ -541,7 +541,7 @@ def calculate_actual_tree_height(tree):
     return max(trunk_z_coords) - min(trunk_z_coords)
 
 
-def compute_tree_radii(tree, trunk_radius, radius_exponent, index2position, expected_height=None):
+def compute_tree_radii(tree, trunk_radius, radius_exponent, index2position, expected_height=None, trunk_radius_scaling=0.75):
     """
     Main function to compute tree radii using Da Vinci's law and smoothing.
     Applies allometric scaling based on actual vs expected tree height.
@@ -563,9 +563,9 @@ def compute_tree_radii(tree, trunk_radius, radius_exponent, index2position, expe
     if expected_height is not None and expected_height > 0:
         actual_height = calculate_actual_tree_height(tree)
         if actual_height > 0:
-            # Allometric scaling: new_radius = trunk_radius * (height / expected_height)^0.75
+            # Allometric scaling: new_radius = trunk_radius * (height / expected_height)^trunk_radius_scaling
             height_ratio = actual_height / expected_height
-            scaled_trunk_radius = trunk_radius * (height_ratio ** 0.75)
+            scaled_trunk_radius = trunk_radius * (height_ratio ** trunk_radius_scaling)
             print(f"Tree height scaling: expected={expected_height:.2f}, actual={actual_height:.2f}, "
                   f"original_radius={trunk_radius:.4f}, scaled_radius={scaled_trunk_radius:.4f}")
 
@@ -599,7 +599,11 @@ def createGeometry(tree,
     taper_per_meter=0.02,
     stem_height=0.0,
     crown_height=0.0,
-    crown_offset=0.0):
+    crown_offset=0.0,
+    trunk_radius_scaling=0.75,
+    leaf_area_scaling=0.2,
+    leaf_area_dbh_scaling=2.2,
+    leaf_area_height_scaling=0.5):
 
     if particlesettings is None and leafParticles != 'None':
         raise ValueError("No particlesettings available, cannot create leaf particles")
@@ -643,7 +647,7 @@ def createGeometry(tree,
     expected_height = stem_height + crown_height - crown_offset
 
     # Compute tree radii using Da Vinci's law and smoothing with allometric scaling
-    radii_abs, scaled_trunk_radius = compute_tree_radii(tree, trunk_radius, radius_exponent, index2position, expected_height)
+    radii_abs, scaled_trunk_radius = compute_tree_radii(tree, trunk_radius, radius_exponent, index2position, expected_height, trunk_radius_scaling)
 
     # native skinning method
     if nomodifiers == False and skinmethod == 'NATIVE':
@@ -724,21 +728,25 @@ def createGeometry(tree,
     # Use the scaled trunk radius from the allometric scaling and the expected height
     calculated_leaf_area = calculate_leaf_area_from_allometry(
         trunk_radius=scaled_trunk_radius,
-        tree_height=expected_height
+        tree_height=expected_height,
+        leaf_area_scaling=leaf_area_scaling,
+        leaf_area_dbh_scaling=leaf_area_dbh_scaling,
+        leaf_area_height_scaling=leaf_area_height_scaling
     )
     
     # Override the totalLeafArea parameter with the calculated value
     leaf_params['totalLeafArea'] = calculated_leaf_area
     print(f"Calculated leaf area: {calculated_leaf_area:.2f} for tree with trunk_radius={trunk_radius:.4f}, scaled_radius={scaled_trunk_radius:.4f}, height={expected_height:.2f}")
     
-    generate_foliage(converted_qsm, qsm_path, execute_matlab=True, leaf_params=leaf_params)
-    timings.add('leaves')
+    # Skip immediate leaf generation for parallel processing - return QSM and leaf_params instead
+    # generate_foliage(converted_qsm, qsm_path, execute_matlab=True, leaf_params=leaf_params)
+    timings.add('leaves_prep')
 
     if timeperf:
         print(timings)
 
     # bpy.data.objects.remove(obj_new, do_unlink=True)
-    return obj_processed
+    return obj_processed, (converted_qsm, leaf_params)
 
 # This method is currently not being used.
 def add_leaves_to_tree(tree, leave_nodes, obj_new):
@@ -947,6 +955,10 @@ class SCATree():
                 apicalcontroltiming=10,
                 context=None,
                 trunk_radius=0.25,
+                trunk_radius_scaling=0.75,
+                leaf_area_scaling=0.2,
+                leaf_area_dbh_scaling=2.2,
+                leaf_area_height_scaling=0.5,
                 ):
         self.class_id = class_id
         self.internodeLength = interNodeLength
@@ -954,6 +966,10 @@ class SCATree():
         self.influenceRange = influenceRange
         self.tropism = tropism
         self.trunk_radius = float(trunk_radius)
+        self.trunk_radius_scaling = float(trunk_radius_scaling)
+        self.leaf_area_scaling = float(leaf_area_scaling)
+        self.leaf_area_dbh_scaling = float(leaf_area_dbh_scaling)
+        self.leaf_area_height_scaling = float(leaf_area_height_scaling)
         self.useGroups = useGroups
         self.crownGroup = crownGroup
         self.shadowGroup = shadowGroup
@@ -1087,7 +1103,7 @@ class SCATree():
 
         self.leafParticles = next((k for k in particlesettings.keys() if k.startswith('LeavesAbstractSummer')), 'None')
 
-        obj_new = createGeometry(
+        obj_new, (converted_qsm, leaf_params) = createGeometry(
             sca,
             self.noModifiers, self.skinMethod, self.subSurface,
             self.bLeaf,
@@ -1102,7 +1118,11 @@ class SCATree():
             trunk_radius=getattr(self, 'trunk_radius', 0.25),
             stem_height=getattr(self, 'stem_height', 0.0),
             crown_height=getattr(self, 'crown_height', 0.0),
-            crown_offset=getattr(self, 'crown_offset', 0.0)
+            crown_offset=getattr(self, 'crown_offset', 0.0),
+            trunk_radius_scaling=getattr(self, 'trunk_radius_scaling', 0.75),
+            leaf_area_scaling=getattr(self, 'leaf_area_scaling', 0.2),
+            leaf_area_dbh_scaling=getattr(self, 'leaf_area_dbh_scaling', 2.2),
+            leaf_area_height_scaling=getattr(self, 'leaf_area_height_scaling', 0.5)
         )
 
         if obj_new is None:
@@ -1118,6 +1138,6 @@ class SCATree():
             print(timings)
 
         self.timings = timings
-        return obj_new
+        return obj_new, (converted_qsm, leaf_params)
 
     # removed legacy single-tree generation
