@@ -5,7 +5,7 @@ from .leaf_generation import MatlabEngineProvider
 from .parallel_leaf_generation import (
     ParallelLeafGenerator, 
     ParallelLeafTask, 
-    import_parallel_leaf_results
+    finalize_parallel_leaf_results
 )
 
 import time
@@ -320,8 +320,8 @@ class ForestGenerator(bpy.types.Operator):
             with ParallelLeafGenerator(max_workers=self.max_concurrent_trees) as leaf_generator:
                 leaf_results = leaf_generator.generate_leaves_parallel(parallel_leaf_tasks)
                 
-                # Import all successful leaf results
-                import_parallel_leaf_results(leaf_results, tree_locations)
+                # Finalize all successful leaf results (position and parent)
+                finalize_parallel_leaf_results(leaf_results, tree_locations)
         
         # Clean up any remaining singleton MATLAB engine (shouldn't be needed now)
         try:

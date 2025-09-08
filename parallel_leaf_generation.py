@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List, Tuple
 import matlab.engine
 import numpy as np
 
-from .leaf_generation import QSM, import_obj_to_blender
+from .leaf_generation import QSM
 
 
 @dataclass
@@ -84,17 +84,126 @@ def create_leaf_params_struct(engine: matlab.engine.MatlabEngine, leaf_params: D
     return engine.feval('struct', *mpairs) if mpairs else engine.eval('struct()', nargout=1)
 
 
-def create_obj_from_string(obj_string: str, tree_id: int) -> Optional[str]:
-    """Create a temporary OBJ file from string data for import into Blender."""
-    import tempfile
+def parse_obj_string(obj_string: str) -> Tuple[List[Tuple[float, float, float]], List[Tuple[int, int, int]]]:
+    """Parse OBJ string data and return vertices and faces."""
+    vertices = []
+    faces = []
+    
+    for line in obj_string.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('v '):
+            # Parse vertex: "v x y z"
+            parts = line.split()
+            if len(parts) >= 4:
+                try:
+                    x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+                    vertices.append((x, y, z))
+                except ValueError:
+                    continue
+        elif line.startswith('f '):
+            # Parse face: "f v1 v2 v3" (OBJ uses 1-based indexing)
+            parts = line.split()
+            if len(parts) >= 4:
+                try:
+                    # Convert to 0-based indexing for Blender
+                    face_indices = []
+                    for i in range(1, len(parts)):
+                        # Handle "v/vt/vn" format by taking only vertex index
+                        vertex_data = parts[i].split('/')[0]
+                        face_indices.append(int(vertex_data) - 1)
+                    
+                    # For triangles, add directly
+                    if len(face_indices) == 3:
+                        faces.append(tuple(face_indices))
+                    # For quads, split into two triangles
+                    elif len(face_indices) == 4:
+                        faces.append((face_indices[0], face_indices[1], face_indices[2]))
+                        faces.append((face_indices[0], face_indices[2], face_indices[3]))
+                except (ValueError, IndexError):
+                    continue
+    
+    return vertices, faces
+
+
+def create_blender_mesh_from_obj_data(obj_string: str, tree_id: int, tree_location: Tuple[float, float, float]) -> Optional[object]:
+    """Create a Blender mesh object directly from OBJ string data at the specified location."""
+    import bpy
+    from mathutils import Vector
+    
     try:
-        # Create a temporary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix=f'_tree_{tree_id}.obj', delete=False) as f:
-            f.write(obj_string)
-            temp_path = f.name
-        return temp_path
+        # Parse OBJ data
+        vertices, faces = parse_obj_string(obj_string)
+        
+        if not vertices or not faces:
+            print(f"No valid geometry found in OBJ data for tree {tree_id}")
+            return None
+        
+        # Store original active object
+        original_active = bpy.context.view_layer.objects.active
+        
+        # Find the tree object to set as active (like the original import does)
+        tree_obj_name = f"Tree_{tree_id}"
+        tree_obj = bpy.data.objects.get(tree_obj_name)
+        
+        if tree_obj:
+            # Set tree as active object (like original import_obj_to_blender)
+            bpy.context.view_layer.objects.active = tree_obj
+            
+            # Set cursor to tree location 
+            original_cursor = bpy.context.scene.cursor.location.copy()
+            bpy.context.scene.cursor.location = Vector(tree_location)
+            bpy.context.view_layer.update()
+        
+        # Create new mesh
+        mesh_name = f"leaves_tree_{tree_id}"
+        mesh = bpy.data.meshes.new(mesh_name)
+        
+        # Convert vertices to Vector objects
+        verts = [Vector(v) for v in vertices]
+        
+        # Create mesh from vertices and faces
+        mesh.from_pydata(verts, [], faces)
+        mesh.update(calc_edges=True)
+        
+        # Create object from mesh 
+        obj_name = f"leaves_export_tree_{tree_id}"
+        obj = bpy.data.objects.new(obj_name, mesh)
+        
+        # Add to scene
+        bpy.context.collection.objects.link(obj)
+        
+        # Set as active object (like after OBJ import)
+        bpy.context.view_layer.objects.active = obj
+        
+        if tree_obj:
+            # Parent to tree (like original import_obj_to_blender)
+            obj.parent = tree_obj
+            
+            # Restore original cursor
+            bpy.context.scene.cursor.location = original_cursor
+            bpy.context.view_layer.update()
+            
+            # Restore original active object
+            bpy.context.view_layer.objects.active = original_active
+        
+        # Create and assign green material
+        material_name = "Foliage_Green"
+        if material_name not in bpy.data.materials:
+            mat = bpy.data.materials.new(material_name)
+            mat.diffuse_color = (0.1, 0.6, 0.1, 1.0)
+        else:
+            mat = bpy.data.materials[material_name]
+        
+        if obj.data.materials:
+            obj.data.materials[0] = mat
+        else:
+            obj.data.materials.append(mat)
+        
+        print(f"Created Blender mesh for tree {tree_id} at {tree_location}: {len(vertices)} vertices, {len(faces)} faces")
+        return obj
+        
     except Exception as e:
-        print(f"Error creating temporary OBJ file for tree {tree_id}: {e}")
+        print(f"Error creating Blender mesh for tree {tree_id}: {e}")
         return None
 
 
@@ -107,9 +216,22 @@ class ParallelLeafGenerator:
     def __init__(self, max_workers: int = 4):
         self.max_workers = max_workers
         self.engines: List[matlab.engine.MatlabEngine] = []
+        self.struct_engine: Optional[matlab.engine.MatlabEngine] = None
         
     def __enter__(self):
-        # Start MATLAB engines
+        # Start one dedicated engine for struct creation (non-blocking operations)
+        try:
+            print("Starting dedicated MATLAB engine for struct creation...")
+            self.struct_engine = matlab.engine.start_matlab()
+            leafgen_src = os.path.join(os.path.dirname(__file__), 'leafgen', 'src')
+            if os.path.exists(leafgen_src):
+                self.struct_engine.addpath(leafgen_src, nargout=0)
+            print("Struct engine started successfully")
+        except Exception as e:
+            print(f"Failed to start struct engine: {e}")
+            self.struct_engine = None
+        
+        # Start MATLAB engines for background tasks
         print(f"Starting {self.max_workers} MATLAB engines for parallel leaf generation...")
         for i in range(self.max_workers):
             try:
@@ -123,10 +245,18 @@ class ParallelLeafGenerator:
             except Exception as e:
                 print(f"Failed to start MATLAB engine {i+1}: {e}")
         
-        print(f"Successfully started {len(self.engines)} MATLAB engines")
+        print(f"Successfully started {len(self.engines)} MATLAB engines + 1 struct engine")
         return self
         
     def __exit__(self, exc_type, exc_val, exc_tb):
+        # Quit struct engine
+        if self.struct_engine:
+            try:
+                self.struct_engine.quit()
+                print("Quit struct engine")
+            except Exception as e:
+                print(f"Error quitting struct engine: {e}")
+        
         # Quit all MATLAB engines
         for i, engine in enumerate(self.engines):
             try:
@@ -135,17 +265,22 @@ class ParallelLeafGenerator:
             except Exception as e:
                 print(f"Error quitting MATLAB engine {i+1}: {e}")
     
-    def generate_leaves_parallel(self, tasks: List[ParallelLeafTask]) -> Dict[int, Optional[str]]:
+    def generate_leaves_parallel(self, tasks: List[ParallelLeafTask]) -> Dict[int, Optional[object]]:
         """
         Generate leaves for multiple trees in parallel using MATLAB background execution.
         QSM data is passed directly to MATLAB and OBJ data is returned in memory.
-        Returns a dictionary mapping tree_id to obj_path (or None if failed).
+        Creates Blender mesh objects directly from OBJ string data.
+        Returns a dictionary mapping tree_id to Blender object (or None if failed).
         """
         if not tasks:
             return {}
         
         if not self.engines:
             print("No MATLAB engines available for parallel processing")
+            return {task.tree_id: None for task in tasks}
+        
+        if not self.struct_engine:
+            print("No struct engine available - falling back to blocking struct creation")
             return {task.tree_id: None for task in tasks}
         
         print(f"Starting parallel leaf generation for {len(tasks)} trees using {len(self.engines)} MATLAB engines")
@@ -160,11 +295,11 @@ class ParallelLeafGenerator:
             engine_index += 1
             
             try:
-                # Convert QSM to MATLAB struct format
-                qsm_struct = convert_qsm_to_matlab_struct(engine, task.qsm)
+                # Convert QSM to MATLAB struct format using dedicated struct engine
+                qsm_struct = convert_qsm_to_matlab_struct(self.struct_engine, task.qsm)
                 
-                # Create leaf parameters struct
-                leaf_params_struct = create_leaf_params_struct(engine, task.leaf_params)
+                # Create leaf parameters struct using dedicated struct engine
+                leaf_params_struct = create_leaf_params_struct(self.struct_engine, task.leaf_params)
                 
                 # Submit background task - call the new parallel function
                 print(f"Submitting tree {task.tree_id} to MATLAB engine {(engine_index-1) % len(self.engines) + 1}")
@@ -199,14 +334,25 @@ class ParallelLeafGenerator:
                 elapsed = time.time() - bg_task.start_time
                 
                 if obj_string and len(obj_string) > 0:
-                    # Create temporary OBJ file from string data
-                    temp_obj_path = create_obj_from_string(obj_string, bg_task.task_id)
-                    if temp_obj_path:
-                        results[bg_task.task_id] = temp_obj_path
-                        print(f"✓ Tree {bg_task.task_id} leaf generation completed successfully in {elapsed:.1f}s ({len(obj_string)} chars)")
+                    # Get tree location for this task
+                    tree_location = None
+                    for task in tasks:
+                        if task.tree_id == bg_task.task_id:
+                            tree_location = task.tree_location
+                            break
+                    
+                    if tree_location:
+                        # Create Blender mesh object directly from OBJ string data at correct location
+                        blender_obj = create_blender_mesh_from_obj_data(obj_string, bg_task.task_id, tree_location)
+                        if blender_obj:
+                            results[bg_task.task_id] = blender_obj
+                            print(f"✓ Tree {bg_task.task_id} leaf generation completed successfully in {elapsed:.1f}s ({len(obj_string)} chars)")
+                        else:
+                            results[bg_task.task_id] = None
+                            print(f"✗ Tree {bg_task.task_id} failed to create Blender mesh after {elapsed:.1f}s")
                     else:
                         results[bg_task.task_id] = None
-                        print(f"✗ Tree {bg_task.task_id} failed to create temporary OBJ file after {elapsed:.1f}s")
+                        print(f"✗ Tree {bg_task.task_id} no location found")
                 else:
                     results[bg_task.task_id] = None
                     print(f"✗ Tree {bg_task.task_id} returned empty OBJ data after {elapsed:.1f}s")
@@ -215,74 +361,17 @@ class ParallelLeafGenerator:
                 print(f"✗ Tree {bg_task.task_id} failed: {e}")
                 results[bg_task.task_id] = None
         
-        success_count = sum(1 for path in results.values() if path is not None)
+        success_count = sum(1 for obj in results.values() if obj is not None)
         print(f"Parallel leaf generation completed: {success_count}/{len(tasks)} trees successful")
         
         return results
 
 
-def import_parallel_leaf_results(results: Dict[int, Optional[str]], tree_locations: Dict[int, Tuple[float, float, float]]):
+def finalize_parallel_leaf_results(results: Dict[int, Optional[object]], tree_locations: Dict[int, Tuple[float, float, float]]):
     """
-    Import the generated leaf OBJ files into Blender for all successful trees.
-    Cleans up temporary files after import.
+    Finalize the generated leaf objects.
+    The objects have already been created, positioned, and parented during mesh creation.
+    This function mainly reports the final status.
     """
-    import bpy
-    from mathutils import Vector
-    
-    success_count = 0
-    original_cursor = bpy.context.scene.cursor.location.copy()
-    temp_files_to_cleanup = []
-    
-    for tree_id, obj_path in results.items():
-        if obj_path is None:
-            continue
-            
-        try:
-            # Set cursor to tree location if available
-            if tree_id in tree_locations:
-                location = tree_locations[tree_id]
-                bpy.context.scene.cursor.location = Vector(location)
-                bpy.context.view_layer.update()
-            
-            # Import the OBJ file
-            foliage_obj = import_obj_to_blender(obj_path)
-            
-            if foliage_obj:
-                # Rename to include tree ID
-                foliage_obj.name = f"leaves_export_tree_{tree_id}"
-                
-                # Try to parent to the corresponding tree if it exists
-                tree_obj_name = f"Tree_{tree_id}"
-                tree_obj = bpy.data.objects.get(tree_obj_name)
-                if tree_obj:
-                    foliage_obj.parent = tree_obj
-                    print(f"Successfully imported and parented leaves for tree {tree_id}")
-                else:
-                    print(f"Successfully imported leaves for tree {tree_id} (no parent tree found)")
-                    
-                success_count += 1
-            else:
-                print(f"Failed to import leaves for tree {tree_id}")
-            
-            # Add to cleanup list
-            temp_files_to_cleanup.append(obj_path)
-                
-        except Exception as e:
-            print(f"Error importing leaves for tree {tree_id}: {e}")
-            # Still add to cleanup list
-            temp_files_to_cleanup.append(obj_path)
-    
-    # Clean up temporary files
-    for temp_file in temp_files_to_cleanup:
-        try:
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
-                print(f"Cleaned up temporary file: {os.path.basename(temp_file)}")
-        except Exception as e:
-            print(f"Error cleaning up temporary file {temp_file}: {e}")
-    
-    # Restore original cursor location
-    bpy.context.scene.cursor.location = original_cursor
-    bpy.context.view_layer.update()
-    
-    print(f"Imported leaves for {success_count} trees into Blender")
+    success_count = sum(1 for obj in results.values() if obj is not None)
+    print(f"Finalized leaves for {success_count} trees in Blender - all objects already positioned and parented")
