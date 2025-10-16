@@ -22,7 +22,7 @@
 import sys
 # for first time
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, assert_never
 
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
 
@@ -51,7 +51,7 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty
 from mathutils import Euler, Matrix, Quaternion, Vector
 from scipy.spatial import KDTree
 
-from .leaf_generation import convert_sca_skeleton_to_qsm, generate_foliage
+from .parallel_leaf_generation import convert_sca_skeleton_to_qsm, generate_foliage
 from .sca import (  # the core class that implements the space colonization algorithm and the definition of a segment
     SCA, Branchpoint)
 from .timer import Timer
@@ -314,7 +314,6 @@ def _basictri_fixed(bp, verts, scale, p):
     ])
     return (nv, nv+1, nv+2)
 
-#TODO: Make it better than just random
 def leafnode(bp, verts, faces, radii_unused, p1, p2, scale=0.0001):
     loop1 = _basictri_fixed(bp, verts, scale, p1)
     loop2 = _basictri_fixed(bp, verts, scale, p2)
@@ -475,7 +474,7 @@ def smooth_radii_along_unary_chains(tree, radii_abs, node_to_children, parent_id
     return radii_abs
 
 
-def calculate_leaf_area_from_allometry(trunk_radius, tree_height, leaf_area_scaling=0.2, leaf_area_dbh_scaling=2.2, leaf_area_height_scaling=0.5):
+def calculate_leaf_area_from_allometry(trunk_radius: float, tree_height: float, leaf_area_scaling=0.2, leaf_area_dbh_scaling=2.2, leaf_area_height_scaling=0.5):
     """
     Calculate leaf area using allometric formula: leaf_area_scaling * (DBH^leaf_area_dbh_scaling) * (H^leaf_area_height_scaling)
     
@@ -748,90 +747,6 @@ def createGeometry(tree,
     # bpy.data.objects.remove(obj_new, do_unlink=True)
     return obj_processed, (converted_qsm, leaf_params)
 
-# This method is currently not being used.
-def add_leaves_to_tree(tree, leave_nodes, obj_new):
-    # Create a new mesh for the leaves
-    leaf_mesh = bpy.data.meshes.new("Leaves")
-    leaf_verts = []
-    leaf_faces = []
-
-    # uv_layer = leaf_mesh.loops.layers.uv.new()
-
-    for leave_node in leave_nodes:
-        pos = leave_node.v
-        direction = (pos - tree.branchpoints[leave_node.parent].v).normalized() if leave_node.parent is not None else Vector((0, 0, 1))
-
-        # First quad
-        v1 = Vector((-0.1,-0.1,0))
-        v2 = Vector((0.1,-0.1,0))
-        v3 = Vector((0.1,0.1,0))
-        v4 = Vector((-0.1,0.1,0))
-
-        # Rotate the second quad vertices 90° from the direction vector
-        # current_direction = Vector((0, 0, 1))  # Assuming the initial direction is along the Z-axis
-        # rotation = current_direction.rotation_difference(direction)
-
-        axis = Vector((0, 0, 1))  # Z-axis
-        angle = radians(90)  # Convert degrees to radians
-
-        # Create a rotation matrix
-        rotation_matrix = Vector((0, 0, 1)).rotation_difference(direction).to_matrix().to_4x4()
-        rotation_matrix = Matrix.Rotation(angle, 4, axis) @ rotation_matrix
-
-        v1 = rotation_matrix @ v1
-        v2 = rotation_matrix @ v2
-        v3 = rotation_matrix @ v3
-        v4 = rotation_matrix @ v4
-
-        v1 += pos
-        v2 += pos
-        v3 += pos
-        v4 += pos
-
-        leaf_verts.extend([v1, v2, v3, v4])
-        start_index = len(leaf_verts) - 4
-        # Faces for the two quads
-        leaf_faces.append((start_index + 0, start_index + 1, start_index + 2, start_index + 3))
-
-    # Assign vertices and faces to the leaf mesh
-    leaf_mesh.from_pydata(leaf_verts, [], leaf_faces)
-    leaf_mesh.update()
-    uv_layer = leaf_mesh.uv_layers.new(name="UVMap")
-    uv_data = uv_layer.data
-    for face in leaf_mesh.polygons:
-        for loop_index, uv in zip(range(face.loop_start, face.loop_start + face.loop_total), [(0, 0), (1, 0), (1, 1), (0, 1)]):
-            uv_data[loop_index].uv = uv
-
-    # Create a new material
-    mat = bpy.data.materials.new(name="LeafMaterial")
-    mat.use_nodes = True
-    bsdf = mat.node_tree.nodes.get("Principled BSDF")
-
-    # Load image
-    image_path = "C:/Users/anton/Documents/Uni/Spatial Data Analysis/Procedual_Blender_Forest_Simulator/textures/chestnut_summer_color.png"  # Replace with your image path
-    image = bpy.data.images.load(image_path)
-
-    # Create texture node
-    tex_image = mat.node_tree.nodes.new('ShaderNodeTexImage')
-    tex_image.image = image
-
-    # Connect the texture to the base color
-    mat.node_tree.links.new(bsdf.inputs['Base Color'], tex_image.outputs['Color'])
-
-    # Create a new object for the leaves
-    leaf_obj = bpy.data.objects.new("Leaves", leaf_mesh)
-
-    if leaf_obj.data.materials:
-        leaf_obj.data.materials[0] = mat
-    else:
-        leaf_obj.data.materials.append(mat)
-
-    # Link the leaf object to the same collection as obj_new
-    bpy.context.view_layer.active_layer_collection.collection.objects.link(leaf_obj)
-
-    # Parent the leaves to the tree object
-    leaf_obj.parent = obj_new
-
 def segmentIntoTrunkAndBranch(tree, obj_new, radii):
     # Get trunk nodes using the shared function
     trunk_nodes = get_trunk_nodes(tree.branchpoints)
@@ -1014,11 +929,11 @@ class SCATree():
         global barkmaterials
         barkmaterials = load_materials_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'Bark')
 
-        particlesettings = load_particlesettings_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'LeafEmitter')
-        bpy.types.MESH_OT_forest_generator.particlesettings = particlesettings
+        # particlesettings = load_particlesettings_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'LeafEmitter')
+        # bpy.types.MESH_OT_forest_generator.particlesettings = particlesettings
 
-        self.leafParticles = availableParticleSettings(self, context, particlesettings)[9]
-
+        # self.leafParticles = availableParticleSettings(self, context, particlesettings)[9]
+        self.leafParticles = None
         timings = Timer()
 
         try:
@@ -1036,7 +951,7 @@ class SCATree():
         elif self.crown_type == 'spreading':
             volumefie = partial(hemisphere_points, self.crown_width, Vector((0, 0, self.stem_height - self.crown_offset)), self.surface_bias, self.top_bias)
         else:
-            raise ValueError(f"Invalid crown type: {self.crown_type}")
+            assert_never(self.crown_type)
 
         startingpoints = []
         if self.useTrunkGroup:
@@ -1067,12 +982,12 @@ class SCATree():
             origin=(float(origin_loc.x), float(origin_loc.y), float(origin_loc.z))
         )
 
-        return sca, particlesettings, timings
+        return sca, None, timings
 
     def prepare_growth(self, context, edge_index):
         timings = Timer()
         timings.add('scastart')
-        sca, particlesettings, base_timings = self._prepare_common(context, edge_index)
+        sca, _, base_timings = self._prepare_common(context, edge_index)
         timings.add('sca')
 
         # initialize step-wise growth
@@ -1080,7 +995,7 @@ class SCATree():
 
         self._prepared = {
             'sca': sca,
-            'particlesettings': particlesettings,
+            # 'particlesettings': particlesettings,
             'timings': timings,
         }
         return sca
@@ -1090,7 +1005,6 @@ class SCATree():
             return None
 
         sca = self._prepared['sca']
-        particlesettings = self._prepared['particlesettings']
         timings = self._prepared['timings']
 
         sca.finalize_after_growth()
@@ -1101,14 +1015,13 @@ class SCATree():
             base = bpy.context.collection.objects.link(obj_markers)
         timings.add('showmarkers')
 
-        self.leafParticles = next((k for k in particlesettings.keys() if k.startswith('LeavesAbstractSummer')), 'None')
-
+       
         obj_new, (converted_qsm, leaf_params) = createGeometry(
             sca,
             self.noModifiers, self.skinMethod, self.subSurface,
             self.bLeaf,
             self.leafParticles,
-            particlesettings if self.addLeaves else 'None',
+            'None'
             'None',
             self.emitterScale,
             self.timePerformance,

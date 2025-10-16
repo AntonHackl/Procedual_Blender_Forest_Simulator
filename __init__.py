@@ -1,8 +1,8 @@
 import sys
 
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python311\\site-packages")
-from .leaf_generation import MatlabEngineProvider
 from .parallel_leaf_generation import (
+    MatlabEngineProvider,
     ParallelLeafGenerator, 
     ParallelLeafTask, 
     finalize_parallel_leaf_results
@@ -19,7 +19,6 @@ import numpy as np
 
 import bpy
 from mathutils import Vector
-# removed: VoxelGrid (voxelization not used)
 from .tree_mesh_generation import SCATree
 from .sca import SCA
 from .edge_index import EdgeIndex
@@ -88,18 +87,18 @@ class ForestGenerator(bpy.types.Operator):
         min=0.1,
         max=10.0
     )
-    max_concurrent_trees: bpy.props.IntProperty(
-        name="Max Concurrent Trees",
-        description="Maximum number of trees to generate concurrently (parallel crown generation). Higher values use more CPU/memory but reduce generation time. Recommended: 2-8 depending on your system.",
+    max_concurrent_foliage_generations: bpy.props.IntProperty(
+        name="Max Concurrent Foliage Generations",
+        description="Maximum number of foliage generations to run concurrently (parallel crown generation). Higher values use more CPU/memory but reduce generation time. Recommended: 2-8 depending on your system.",
         default=4,
         min=1,
         max=16
     )
-
-    voxel_model_related_configuration_fields = {
-        # "stem_height",
-        # "stem_diameter",
-    }
+    screenshot_mode: bpy.props.BoolProperty(
+        name="Endpoints Screenshot Mode",
+        description="Display only tiny spheres at SCA endpoints for presentation screenshot, skipping mesh/foliage/vegetation",
+        default=False,
+    )
     
     @classmethod
     def poll(self, context):
@@ -138,7 +137,8 @@ class ForestGenerator(bpy.types.Operator):
         box.label(text="Generation Settings:")
         box.prop_search(self, 'surface_object_name', bpy.data, 'objects', text='Surface Object')
         box.prop(self, 'low_vegetation_density', text='Low Vegetation Density')
-        box.prop(self, 'max_concurrent_trees', text='Max Concurrent Trees')
+        box.prop(self, 'max_concurrent_foliage_generations', text='Max Concurrent Foliage Generations')
+        box.prop(self, 'screenshot_mode', text='Endpoints Screenshot Mode')
         box.prop(self, 'treeConfigurationCount')
 
         for i, tree_config in enumerate(self.tree_configurations):
@@ -174,20 +174,8 @@ class ForestGenerator(bpy.types.Operator):
             with open(tree_config.path) as tree_config_json:
                 tree_configurations.append(json.load(tree_config_json))
                 configuration_weights.append(tree_config.weight)
-        
-        tree_voxel_configurations = [
-            {k : v for k, v in tree_configuration.items() 
-                if k in self.voxel_model_related_configuration_fields} 
-            for tree_configuration in tree_configurations
-        ]
-        
-        tree_mesh_configurations = [
-            {k : v for k, v in tree_configuration.items()
-                if k not in self.voxel_model_related_configuration_fields}
-            for tree_configuration in tree_configurations
-        ]
 
-        for cfg in tree_mesh_configurations:
+        for cfg in tree_configurations:
             if 'leaf_params' not in cfg or not isinstance(cfg.get('leaf_params'), dict):
                 cfg['leaf_params'] = {
                     'pLADDh': [8, 3],
@@ -199,7 +187,7 @@ class ForestGenerator(bpy.types.Operator):
         # Pre-sample full configurations in Poisson sampling and receive per-tree sampled configs
         tree_positions = []
         if use_mesh_surface:
-            tree_positions = poisson_disk_sampling_on_surface(terrain_obj, configuration_weights, tree_mesh_configurations)
+            tree_positions = poisson_disk_sampling_on_surface(terrain_obj, configuration_weights, tree_configurations)
         else:
             print('No surface object set. Aborting forest generation.')
             return {'FINISHED'}
@@ -254,7 +242,7 @@ class ForestGenerator(bpy.types.Operator):
             progress_interval = max(1, max_generations // 10)
             last_progress_reported = 0
             
-            for gen in range(max_generations):
+            for gen in range(10):            # for gen in range(max_generations):
                 all_finished = True
                 trees_this_generation = prepared_trees.copy()
                 random.shuffle(trees_this_generation)
@@ -274,6 +262,47 @@ class ForestGenerator(bpy.types.Operator):
                     final_progress = round(((gen + 1) / max_generations) * 100)
                     print(f"All trees finished growing after {gen + 1} generations ({final_progress}% complete)")
                     break
+
+        # Screenshot mode: visualize endpoints as tiny spheres with random per-tree color, then early return
+        if self.screenshot_mode:
+            try:
+                preview_collection = self.get_or_create_collection("SCA Endpoints Preview")
+                # Create a small UV sphere mesh once and instance it per endpoint
+                sphere_mesh = bpy.data.meshes.get("EndpointSphere")
+                if sphere_mesh is None:
+                    sphere_mesh = bpy.data.meshes.new("EndpointSphere")
+                    bm = bmesh.new()
+                    # Larger endpoint sphere for better visibility (radius ~ 0.05 => diameter ~ 0.10)
+                    bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=0.05)
+                    bm.to_mesh(sphere_mesh)
+                    bm.free()
+
+                for t in prepared_trees:
+                    # Build endpoints after growth
+                    try:
+                        t.sca.finalize_after_growth()
+                        mat = self.create_random_material(f"TreeColor_{t.index}")
+                        # Create a per-tree mesh copy so materials don't clash across trees
+                        tree_sphere_mesh = sphere_mesh.copy()
+                        tree_sphere_mesh.name = f"EndpointSphere_Tree{t.index}"
+                        if mat is not None:
+                            if tree_sphere_mesh.materials:
+                                tree_sphere_mesh.materials[0] = mat
+                            else:
+                                tree_sphere_mesh.materials.append(mat)
+                        for ep in t.sca.endpoints:
+                            obj = bpy.data.objects.new(f"Tree{t.index}_EP", tree_sphere_mesh)
+                            obj.location = (ep.x + t.location.x, ep.y + t.location.y, ep.z + t.location.z)
+                            preview_collection.objects.link(obj)
+                    except Exception as e:
+                        print(f"Error creating endpoint spheres for tree {t.index} at {t.pos}: {e}")
+                print("Screenshot mode: displayed endpoint spheres only. Skipping mesh/foliage/vegetation generation.")
+            except Exception as e:
+                print(f"Screenshot mode failed: {e}")
+            # Early return to avoid heavy generation steps
+            self.updateForest = False
+            bpy.context.scene.cursor.location = original_cursor_location
+            return {'FINISHED'}
 
         # First phase: Generate all tree meshes (without leaves)
         finalized_trees = []
@@ -317,7 +346,7 @@ class ForestGenerator(bpy.types.Operator):
         # Second phase: Generate leaves in parallel
         if parallel_leaf_tasks:
             print(f"Phase 2: Generating leaves for {len(parallel_leaf_tasks)} trees in parallel...")
-            with ParallelLeafGenerator(max_workers=self.max_concurrent_trees) as leaf_generator:
+            with ParallelLeafGenerator(max_workers=self.max_concurrent_foliage_generations) as leaf_generator:
                 leaf_results = leaf_generator.generate_leaves_parallel(parallel_leaf_tasks)
                 
                 # Finalize all successful leaf results (position and parent)
@@ -606,12 +635,6 @@ class ForestGenerator(bpy.types.Operator):
         except Exception as e:
             print(f"Error in bbox collision check: {e}")
             return True  # Conservative: assume collision if error
-    
-
-    
-
-    
-
     
     def get_terrain_normal_at_point(self, terrain_obj, pos):
         """Get terrain normal at a specific point."""

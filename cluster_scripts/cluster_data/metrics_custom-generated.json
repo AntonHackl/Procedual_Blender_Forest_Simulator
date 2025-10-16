@@ -1,0 +1,33 @@
+{
+  "root_dir": "C:\\Users\\anton\\Documents\\Uni\\Spatial_Data_Analysis\\custom-generated",
+  "generated_at": "20250924_013458",
+  "target_classes": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "instance_classes": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "iou_threshold": 0.5,
+  "total_files": 11,
+  "total_points": 28216001,
+  "aggregate": {
+    "files": 11,
+    "classification_miou_weighted": 0.3061936473514288,
+    "per_class_iou_mean": {
+      "0": 0.4765742381004388,
+      "1": 0.13050880184884406,
+      "2": 0.17963024318793847,
+      "3": 0.6812591196685959,
+      "4": 0.06622447396773633
+    },
+    "instance_detection_miou_mean": 0.430623045149342,
+    "instance_detection_f1_mean": 0.2242168036259993
+  }
+}

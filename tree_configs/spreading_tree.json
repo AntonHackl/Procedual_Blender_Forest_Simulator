@@ -1,7 +1,9 @@
 {
-  "numberOfEndpoints": [900, 100],
-  "interNodeLength": [0.4, 0.02],
-  "stem_height": [8, 3],
+  "numberOfEndpoints": [750, 20],
+  "interNodeLength": [0.5, 0.02],
+  "killDistance": 0.4,
+  "stem_height": [8, 1],
+  "maxIterations": 55,
   "stem_diameter": 1,
   "crown_type": "spreading",
   "trunk_radius": [0.4, 0.05],
@@ -11,7 +13,7 @@
   "surface_bias": [1.5, 0.1],
   "top_bias": [1.0, 0.04],
   "trunk_radius_scaling": 0.75,
-  "leaf_area_scaling": 0.8,
+  "leaf_area_scaling": 1.15,
   "leaf_area_dbh_scaling": 2.2,
   "leaf_area_height_scaling": 0.5,
   "leaf_params": {
