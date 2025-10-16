@@ -20,9 +20,9 @@
 # ##### END GPL LICENSE BLOCK #####
 
 import sys
-# for first time
 from collections import defaultdict
-from typing import Dict, List, assert_never
+from typing import TYPE_CHECKING, Dict, List, Tuple, Optional, Callable, Set, Union, cast
+from typing import NoReturn
 
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python39\\site-packages")
 
@@ -44,90 +44,93 @@ from functools import partial
 from math import cos, radians, sin
 from time import time
 
-import bmesh
-import bpy
 import numpy as np
-from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty
-from mathutils import Euler, Matrix, Quaternion, Vector
 from scipy.spatial import KDTree
 
+import bmesh
+import bpy
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty
+from mathutils import Euler, Matrix, Quaternion, Vector
 from .parallel_leaf_generation import convert_sca_skeleton_to_qsm, generate_foliage
-from .sca import (  # the core class that implements the space colonization algorithm and the definition of a segment
-    SCA, Branchpoint)
+from .sca import SCA, Branchpoint
 from .timer import Timer
 from .utils import (create_inverse_graph, get_vertex_group,
                     load_materials_from_bundled_lib,
                     load_particlesettings_from_bundled_lib)
 from .edge_index import EdgeIndex
 
+if TYPE_CHECKING:
+    import bpy.types
+    import bmesh.types
+    from .parallel_leaf_generation import QSM, LeafParamsDict
+    from .types_definitions import VolumeGenerator
 
-def availableGroups(self, context):
-    return [(name, name, name, n) for n,name in enumerate(bpy.data.collections.keys())]
 
-def availableGroupsOrNone(self, context):
-    groups = [ ('None', 'None', 'None', 0) ]
-    return groups + [(name, name, name, n+1) for n,name in enumerate(bpy.data.collections.keys())]
+def availableGroups(self: object, context: "bpy.types.Context") -> List[Tuple[str, str, str, int]]:
+    return [(name, name, name, n) for n, name in enumerate(bpy.data.collections.keys())]
 
-def availableObjects(self, context):
-    return [(name, name, name, n+1) for n,name in enumerate(bpy.data.objects.keys())]
+def availableGroupsOrNone(self: object, context: "bpy.types.Context") -> List[Tuple[str, str, str, int]]:
+    groups = [('None', 'None', 'None', 0)]
+    return groups + [(name, name, name, n+1) for n, name in enumerate(bpy.data.collections.keys())]
 
-barkmaterials = None
+def availableObjects(self: object, context: "bpy.types.Context") -> List[Tuple[str, str, str, int]]:
+    return [(name, name, name, n+1) for n, name in enumerate(bpy.data.objects.keys())]
 
-def availableParticleSettings(self, context, particlesettings):
-    # im am not sure why self.__class__.particlesettings != bpy.types.MESH_OT_sca_tree ....
-    settings = [ ('None', 'None', 'None', 0) ]
-    #    return settings + [(name, name, name, n+1) for n,name in enumerate(bpy.types.MESH_OT_sca_tree.particlesettings.keys())]
-    # (identifier, name, description, number)
-    # note, when we create a new tree the particles settings will be made unique so they can be tweaked individually for
-    # each tree. That also means they will  have distinct names, but we manipulate those to be displayed in a consistent way
-    return settings + [(name, name.split('.')[0], name, n+1) for n,name in enumerate(particlesettings.keys())]
+barkmaterials: Optional[Dict[str, "bpy.types.Material"]] = None
 
-def availableBarkMaterials(self, context):
+def availableParticleSettings(self: object, context: "bpy.types.Context", particlesettings: Dict[str, "bpy.types.ParticleSettings"]) -> List[Tuple[str, str, str, int]]:
+    settings = [('None', 'None', 'None', 0)]
+    return settings + [(name, name.split('.')[0], name, n+1) for n, name in enumerate(particlesettings.keys())]
+
+def availableBarkMaterials(self: object, context: "bpy.types.Context") -> List[Tuple[str, str, str, int]]:
     global barkmaterials
-    return [(name, name.split('.')[0], name, n) for n,name in enumerate(barkmaterials.keys())]
+    if barkmaterials is None:
+        return []
+    return [(name, name.split('.')[0], name, n) for n, name in enumerate(barkmaterials.keys())]
 
-def ellipsoid(r=5,rz=5,p=Vector((0,0,8)),taper=0):
-    r2=r*r
-    z2=rz*rz
-    if rz>r : r = rz
+def ellipsoid(r: float = 5, rz: float = 5, p: "Vector" = Vector((0, 0, 8)), taper: float = 0) -> "VolumeGenerator":
+    r2 = r * r
+    z2 = rz * rz
+    if rz > r:
+        r = rz
     while True:
-        x = (random.random()*2-1)*r
-        y = (random.random()*2-1)*r
-        z = (random.random()*2-1)*r
-        f = (z+r)/(2*r)
-        f = 1 + f*taper if taper>=0 else (1-f)*-taper
-        if f*x*x/r2+f*y*y/r2+z*z/z2 <= 1:
-            yield p+Vector((x,y,z))
+        x = (random.random() * 2 - 1) * r
+        y = (random.random() * 2 - 1) * r
+        z = (random.random() * 2 - 1) * r
+        f = (z + r) / (2 * r)
+        f = 1 + f * taper if taper >= 0 else (1 - f) * -taper
+        if f * x * x / r2 + f * y * y / r2 + z * z / z2 <= 1:
+            yield p + Vector((x, y, z))
 
-def pointInsideMesh(pointrelativetocursor,ob):
-    # adapted from http://blenderartists.org/forum/showthread.php?195605-Detecting-if-a-point-is-inside-a-mesh-2-5-API&p=1691633&viewfull=1#post1691633
+def pointInsideMesh(pointrelativetocursor: Vector, ob: "bpy.types.Object") -> bool:
     mat = ob.matrix_world.inverted()
-    orig = mat@(pointrelativetocursor+bpy.context.scene.cursor.location)
+    orig = mat @ (pointrelativetocursor + bpy.context.scene.cursor.location)
     count = 0
-    axis=Vector((0,0,1))
+    axis = Vector((0, 0, 1))
     while True:
-        _, location,normal,index = ob.ray_cast(orig,orig+axis*10000.0)
-        if index == -1: break
+        _, location, normal, index = ob.ray_cast(orig, orig + axis * 10000.0)
+        if index == -1:
+            break
         count += 1
-        orig = location + axis*0.00001
-    if count%2 == 0:
+        orig = location + axis * 0.00001
+    if count % 2 == 0:
         return False
     return True
 
-def ellipsoid2(rxy=5,rz=5,p=Vector((0,0,8)),surfacebias=1,topbias=1):
+def ellipsoid2(rxy: float = 5, rz: float = 5, p: "Vector" = Vector((0, 0, 8)), surfacebias: float = 1, topbias: float = 1) -> "VolumeGenerator":
     while True:
-        phi = 2*np.pi*random.random()
-        theta = np.pi*(random.random()-0.5)
-        r = random.random()**((1.0/surfacebias))
-        x = r*rxy*cos(theta)*cos(phi)
-        y = r*rxy*cos(theta)*sin(phi)
-        st=sin(theta)
-        st = (((st+1)/2)**(1.0/topbias))*2-1
-        z = r*rz*st
-        m = p+Vector((x,y,z+rz))
+        phi = 2 * np.pi * random.random()
+        theta = np.pi * (random.random() - 0.5)
+        r = random.random() ** ((1.0 / surfacebias))
+        x = r * rxy * cos(theta) * cos(phi)
+        y = r * rxy * cos(theta) * sin(phi)
+        st = sin(theta)
+        st = (((st + 1) / 2) ** (1.0 / topbias)) * 2 - 1
+        z = r * rz * st
+        m = p + Vector((x, y, z + rz))
         yield m
 
-def cylinder_points(radius=1, height=2, center=Vector((0,0,0)), surfacebias=1, topbias=1):
+def cylinder_points(radius: float = 1, height: float = 2, center: "Vector" = Vector((0, 0, 0)), surfacebias: float = 1, topbias: float = 1) -> "VolumeGenerator":
     """
     Generate random points inside a cylinder with surface and top bias.
     - radius: cylinder radius
@@ -138,15 +141,15 @@ def cylinder_points(radius=1, height=2, center=Vector((0,0,0)), surfacebias=1, t
     """
     pi = np.pi
     while True:
-        theta = random.uniform(0, 2*pi)
-        r = radius * (random.random() ** (1.0/surfacebias))
-        z_frac = (random.random() ** (1.0/topbias))
-        z = (z_frac - 0.5) * height  # Range: -height/2 to +height/2
+        theta = random.uniform(0, 2 * pi)
+        r = radius * (random.random() ** (1.0 / surfacebias))
+        z_frac = (random.random() ** (1.0 / topbias))
+        z = (z_frac - 0.5) * height
         x = r * cos(theta)
         y = r * sin(theta)
-        yield center + Vector((x, y, z+height/2))
+        yield center + Vector((x, y, z + height / 2))
 
-def hemisphere_points(radius=1, center=Vector((0,0,0)), surfacebias=1, topbias=1, direction='up'):
+def hemisphere_points(radius: float = 1, center: "Vector" = Vector((0, 0, 0)), surfacebias: float = 1, topbias: float = 1, direction: str = 'up') -> "VolumeGenerator":
     """
     Generate random points inside a hemisphere with surface and top bias.
     - radius: hemisphere radius
@@ -157,10 +160,9 @@ def hemisphere_points(radius=1, center=Vector((0,0,0)), surfacebias=1, topbias=1
     """
     pi = np.pi
     while True:
-        phi = random.uniform(0, 2*pi)
-        # theta: 0 (top) to pi/2 (equator/base)
-        theta = (random.random() ** (1.0/topbias)) * (pi/2)
-        r = radius * (random.random() ** (1.0/surfacebias))
+        phi = random.uniform(0, 2 * pi)
+        theta = (random.random() ** (1.0 / topbias)) * (pi / 2)
+        r = radius * (random.random() ** (1.0 / surfacebias))
         x = r * sin(theta) * cos(phi)
         y = r * sin(theta) * sin(phi)
         z = r * cos(theta)
@@ -168,7 +170,7 @@ def hemisphere_points(radius=1, center=Vector((0,0,0)), surfacebias=1, topbias=1
             z = -z
         yield center + Vector((x, y, z))
 
-def halton3D(index):
+def halton3D(index: int) -> Vector:
     """
     return a quasi random 3D vector R3 in [0,1].
     each component is based on a halton sequence.
@@ -176,9 +178,8 @@ def halton3D(index):
     more evenly distributed then pseudo random sequences.
     See en.m.wikipedia.org/wiki/Halton_sequence
     """
-
-    def halton(index, base):
-        result=0
+    def halton(index: int, base: int) -> float:
+        result=0.0
         f=1.0/base
         I=index
         while I>0:
@@ -188,14 +189,14 @@ def halton3D(index):
         return result
     return Vector((halton(index,2),halton(index,3),halton(index,5)))
 
-def insidegroup(pointrelativetocursor, group):
+def insidegroup(pointrelativetocursor: Vector, group: str) -> bool:
     if group not in bpy.data.collections : return False
     for ob in bpy.data.collections.get(group).objects:
         if isinstance(ob.data, bpy.types.Mesh) and pointInsideMesh(pointrelativetocursor,ob):
             return True
     return False
 
-def groupdistribution(crowngroup,shadowgroup=None,shadowdensity=0.5, seed=0,size=Vector((1,1,1)),pointrelativetocursor=Vector((0,0,0))):
+def groupdistribution(crowngroup: str, shadowgroup: Optional[str] = None, shadowdensity: float = 0.5, seed: int = 0, size: Vector = Vector((1,1,1)), pointrelativetocursor: Vector = Vector((0,0,0))) -> "VolumeGenerator":
     if crowngroup == shadowgroup:
         shadowgroup = None # safeguard otherwise every marker would be rejected
     nocrowngroup = crowngroup not in bpy.data.collections
@@ -227,26 +228,26 @@ def groupdistribution(crowngroup,shadowgroup=None,shadowdensity=0.5, seed=0,size
             nyield+=1
             yield v
 
-def groupExtends(group):
+def groupExtends(group: str) -> Tuple[Vector, Vector]:
     """
     return a size,minimum tuple both Vector elements, describing the size and position
     of the bounding box in world space that encapsulates all objects in a group.
     """
-    bb=[]
+    bb: List[float] = []
     if group in bpy.data.collections:
         for ob in bpy.data.collections[group].objects:
             rot = ob.matrix_world.to_quaternion()
             scale = ob.matrix_world.to_scale()
             translate = ob.matrix_world.translation
-            for v in ob.bound_box: # v is not a vector but an array of floats
+            for v in ob.bound_box:
                 p = ob.matrix_world @ Vector(v[0:3])
                 bb.extend(p[0:3])
         mx = Vector((max(bb[0::3]), max(bb[1::3]), max(bb[2::3])))
         mn = Vector((min(bb[0::3]), min(bb[1::3]), min(bb[2::3])))
         return mx-mn,mn
-    return Vector((2,2,2)),Vector((-1,-1,-1)) # a 2x2x2 cube when the group does not exist
+    return Vector((2,2,2)),Vector((-1,-1,-1))
 
-def createMarkers(tree,scale=0.05):
+def createMarkers(tree: SCA, scale: float = 0.05) -> "bpy.types.Mesh":
     #not used as markers are parented to tree object that is created at the cursor position
     #p=bpy.context.scene.cursor.location
 
@@ -267,7 +268,7 @@ def createMarkers(tree,scale=0.05):
     mesh.update(calc_edges=True)
     return mesh
 
-def basictri(bp, verts, radii_abs, p):
+def basictri(bp: Branchpoint, verts: List[Vector], radii_abs: List[float], p: Vector) -> Tuple[int, int, int]:
     if bp.v is None:
         raise RuntimeError(f"Branchpoint {getattr(bp, 'index', -1)} has no position (v=None)")
     v_bp = bp.v if isinstance(bp.v, Vector) else Vector(bp.v)
@@ -275,8 +276,8 @@ def basictri(bp, verts, radii_abs, p):
     nv = len(verts)
     r = float(radii_abs[bp.index])
     a = -r
-    b = r * 0.5   # cos(60)
-    c = r * 0.866 # sin(60)
+    b = r * 0.5
+    c = r * 0.866
     verts.extend([
         v + Vector((a, 0, 0)),
         v + Vector((b, -c, 0)),
@@ -284,7 +285,7 @@ def basictri(bp, verts, radii_abs, p):
     ])
     return (nv, nv+1, nv+2)
 
-def _simpleskin(bp, loop, verts, faces, radii_abs, p):
+def _simpleskin(bp: Branchpoint, loop: Tuple[int, int, int], verts: List[Vector], faces: List[Tuple[int, ...]], radii_abs: List[float], p: Vector) -> None:
     newloop = basictri(bp, verts, radii_abs, p)
     for i in range(3):
         faces.append((loop[i],loop[(i+1)%3],newloop[(i+1)%3],newloop[i]))
@@ -293,14 +294,14 @@ def _simpleskin(bp, loop, verts, faces, radii_abs, p):
     if bp.shoot:
         _simpleskin(bp.shoot, newloop, verts, faces, radii_abs, p)
 
-def simpleskin(bp, verts, faces, radii_abs, p):
+def simpleskin(bp: Branchpoint, verts: List[Vector], faces: List[Tuple[int, ...]], radii_abs: List[float], p: Vector) -> None:
     loop = basictri(bp, verts, radii_abs, p)
     if bp.apex:
         _simpleskin(bp.apex, loop, verts, faces, radii_abs, p)
     if bp.shoot:
         _simpleskin(bp.shoot, loop, verts, faces, radii_abs, p)
 
-def _basictri_fixed(bp, verts, scale, p):
+def _basictri_fixed(bp: Branchpoint, verts: List[Vector], scale: float, p: Vector) -> Tuple[int, int, int]:
     v = bp.v + p
     nv = len(verts)
     r = float(scale)
@@ -314,12 +315,9 @@ def _basictri_fixed(bp, verts, scale, p):
     ])
     return (nv, nv+1, nv+2)
 
-def leafnode(bp, verts, faces, radii_unused, p1, p2, scale=0.0001):
+def leafnode(bp: Branchpoint, verts: List[Vector], faces: List[Tuple[int, ...]], radii_unused: List[float], p1: Vector, p2: Vector, scale: float = 0.0001) -> None:
     loop1 = _basictri_fixed(bp, verts, scale, p1)
     loop2 = _basictri_fixed(bp, verts, scale, p2)
-    # if random() > random_threshold:
-    #   for i in range(3):
-    #     faces.append((loop1[i],loop1[(i+1)%3],loop2[(i+1)%3],loop2[i]))
     for i in range(3):
         faces.append((loop1[i],loop1[(i+1)%3],loop2[(i+1)%3],loop2[i]))
     if bp.apex:
@@ -327,10 +325,10 @@ def leafnode(bp, verts, faces, radii_unused, p1, p2, scale=0.0001):
     if bp.shoot:
         leafnode(bp.shoot, verts, faces, radii_unused, p1, p2, scale)
 
-def createLeaves2(tree, roots, p, scale):
-    verts = []
-    faces = []
-    radii = []
+def createLeaves2(tree: SCA, roots: Set[Branchpoint], p: Vector, scale: float) -> Tuple["bpy.types.Mesh", List[Vector], List[Tuple[int, ...]], List[float]]:
+    verts: List[Vector] = []
+    faces: List[Tuple[int, ...]] = []
+    radii: List[float] = []
     for r in roots:
         leafnode(r, verts, faces, radii, p, p+Vector((0,0, scale)), scale)
     mesh = bpy.data.meshes.new('LeafEmitter')
@@ -338,22 +336,18 @@ def createLeaves2(tree, roots, p, scale):
     mesh.update(calc_edges=True)
     return mesh, verts, faces, radii
 
-def pruneTree(tree, generation):
-    nbp = []
-    i2p = {}
-    #print()
+def pruneTree(tree: List[Branchpoint], generation: int) -> Tuple[List[Branchpoint], Dict[int, int]]:
+    nbp: List[Branchpoint] = []
+    i2p: Dict[int, int] = {}
     for i,bp in enumerate(tree):
-        #print(i, bp.v, bp.generation, bp.parent, end='')
         if bp.generation >= generation:
-            #print(' keep', end='')
             new_idx = len(nbp)
             bp.index = new_idx
             i2p[i] = new_idx
             nbp.append(bp)
-        #print()
     return nbp, i2p
 
-def compute_radii_da_vinci(tree, trunk_radius, radius_exponent, node_to_children, root_idx):
+def compute_radii_da_vinci(tree: SCA, trunk_radius: float, radius_exponent: float, node_to_children: Dict[int, List[int]], root_idx: int) -> List[float]:
     """
     Compute radii using weighted Da Vinci's rule: r_i = (w_i * r_p^x)^(1/x)
     where w_i is the subtree weight (number of descendant nodes) normalized to sum to 1.
@@ -365,10 +359,8 @@ def compute_radii_da_vinci(tree, trunk_radius, radius_exponent, node_to_children
     
     n_nodes = len(tree.branchpoints)
     
-    # First pass: compute subtree sizes (number of descendant nodes) for each node
     subtree_sizes = [0] * n_nodes
     
-    # Post-order traversal to compute subtree sizes
     stack = [root_idx]
     visit_order = []
     while stack:
@@ -383,7 +375,6 @@ def compute_radii_da_vinci(tree, trunk_radius, radius_exponent, node_to_children
         else:
             subtree_sizes[node] = 1 + sum(subtree_sizes[c] for c in children)
     
-    # Second pass: top-down distribution using weighted Da Vinci's rule
     radii_abs = [0.0] * n_nodes
     radii_abs[root_idx] = float(trunk_radius)
     
@@ -394,11 +385,9 @@ def compute_radii_da_vinci(tree, trunk_radius, radius_exponent, node_to_children
         if not children:
             continue
         
-        # Compute weights based on subtree sizes, normalized to sum to 1
         total_subtree_size = sum(subtree_sizes[c] for c in children)
         weights = [subtree_sizes[c] / total_subtree_size for c in children]
         
-        # Apply weighted Da Vinci's rule: r_i = (w_i * r_p^x)^(1/x)
         parent_radius = radii_abs[node]
         for i, child in enumerate(children):
             w_i = weights[i]
@@ -409,20 +398,18 @@ def compute_radii_da_vinci(tree, trunk_radius, radius_exponent, node_to_children
     return radii_abs
 
 
-def smooth_radii_along_unary_chains(tree, radii_abs, node_to_children, parent_idx):
+def smooth_radii_along_unary_chains(tree: SCA, radii_abs: List[float], node_to_children: Dict[int, List[int]], parent_idx: List[Optional[int]]) -> List[float]:
     """
     Smooth interpolation along unary chains to create gradual transitions.
     For each branching node, interpolate along upstream unary chains.
     """
     n_nodes = len(tree.branchpoints)
     
-    # For each branching node, interpolate along upstream unary chains
     for b in range(n_nodes):
         children = node_to_children.get(b, [])
         if len(children) < 2:
             continue
         
-        # Find upstream unary chain ending at the parent of this branch node
         end_node = parent_idx[b]
         if end_node is None:
             continue
@@ -437,7 +424,6 @@ def smooth_radii_along_unary_chains(tree, radii_abs, node_to_children, parent_id
 
         chain_nodes = list(reversed(chain_nodes))  # from start -> end
 
-        # Compute distances along the chain to weight interpolation
         dists: list[float] = [0.0] * len(chain_nodes)
         cum = 0.0
         for i in range(1, len(chain_nodes)):
@@ -454,21 +440,16 @@ def smooth_radii_along_unary_chains(tree, radii_abs, node_to_children, parent_id
         total = dists[-1] if dists else 0.0
 
         if total <= 0.0:
-            # fallback: uniform steps
             total = float(max(1, len(chain_nodes)-1))
             dists = [float(i) for i in range(len(chain_nodes))]
 
         start_radius = radii_abs[chain_nodes[0]]
-        # End radius should be the maximum radius of children at the branching node that starts the chain
         end_radius = max(radii_abs[c] for c in children)
 
-        # Interpolate from start_radius to end_radius along the chain
         for i, node in enumerate(chain_nodes):
             t = (dists[i] / total) if total > 0 else 1.0
-            # cosine-eased interpolation for smoother falloff
             t_ease = 0.5 - 0.5 * cos(np.pi * t)
             desired = (1.0 - t_ease) * start_radius + t_ease * end_radius
-            # Only reduce radius towards desired to avoid conflicts if chains overlap
             radii_abs[node] = min(radii_abs[node], desired)
     
     return radii_abs
@@ -488,16 +469,14 @@ def calculate_leaf_area_from_allometry(trunk_radius: float, tree_height: float, 
     Returns:
     - leaf_area: calculated leaf area
     """
-    # Convert radius to DBH (Diameter at Breast Height)
     dbh = trunk_radius * 2.0
     
-    # Apply allometric formula
     leaf_area = leaf_area_scaling * (dbh ** leaf_area_dbh_scaling) * (tree_height ** leaf_area_height_scaling) * 100
     
     return leaf_area
 
 
-def get_trunk_nodes(branchpoints):
+def get_trunk_nodes(branchpoints: List[Branchpoint]) -> List[Branchpoint]:
     """
     Get all trunk nodes by finding the top of the trunk and tracing back through the parent chain.
     Returns a list of trunk nodes from top to root.
@@ -505,18 +484,16 @@ def get_trunk_nodes(branchpoints):
     if not branchpoints:
         return []
     
-    # Find trunk nodes using the same logic as segmentIntoTrunkAndBranch
     top = find_top_of_trunk(branchpoints)
     trunk_nodes = [top]
     
-    # Trace back through parent chain to get all trunk nodes
     while trunk_nodes[-1].parent is not None:
         trunk_nodes.append(branchpoints[trunk_nodes[-1].parent])
     
     return trunk_nodes
 
 
-def calculate_actual_tree_height(tree):
+def calculate_actual_tree_height(tree: SCA) -> float:
     """
     Calculate the actual height of the tree from the trunk nodes only.
     Returns the height as the difference between the highest and lowest z-coordinates of trunk nodes.
@@ -524,11 +501,9 @@ def calculate_actual_tree_height(tree):
     if not tree.branchpoints:
         return 0.0
     
-    # Get trunk nodes
     trunk_nodes = get_trunk_nodes(tree.branchpoints)
     
-    # Extract z-coordinates from trunk nodes only
-    trunk_z_coords = []
+    trunk_z_coords: List[float] = []
     for trunk_node in trunk_nodes:
         if trunk_node.v is not None:
             v_bp = trunk_node.v if isinstance(trunk_node.v, Vector) else Vector(trunk_node.v)
@@ -540,7 +515,7 @@ def calculate_actual_tree_height(tree):
     return max(trunk_z_coords) - min(trunk_z_coords)
 
 
-def compute_tree_radii(tree, trunk_radius, radius_exponent, index2position, expected_height=None, trunk_radius_scaling=0.75):
+def compute_tree_radii(tree: SCA, trunk_radius: float, radius_exponent: float, index2position: Dict[int, int], expected_height: Optional[float] = None, trunk_radius_scaling: float = 0.75) -> Tuple[List[float], float]:
     """
     Main function to compute tree radii using Da Vinci's law and smoothing.
     Applies allometric scaling based on actual vs expected tree height.
@@ -549,60 +524,57 @@ def compute_tree_radii(tree, trunk_radius, radius_exponent, index2position, expe
     n_nodes = len(tree.branchpoints)
     node_to_children = create_inverse_graph(tree.branchpoints)
 
-    # Fallback: ensure every node key exists
     for i in range(n_nodes):
         if i not in node_to_children:
             node_to_children[i] = []
 
-    # Find root index in current, pruned list
     root_idx = next((bp.index for bp in tree.branchpoints if bp.parent is None), 0)
 
-    # Apply allometric scaling if expected height is provided
     scaled_trunk_radius = trunk_radius
     if expected_height is not None and expected_height > 0:
         actual_height = calculate_actual_tree_height(tree)
         if actual_height > 0:
-            # Allometric scaling: new_radius = trunk_radius * (height / expected_height)^trunk_radius_scaling
             height_ratio = actual_height / expected_height
             scaled_trunk_radius = trunk_radius * (height_ratio ** trunk_radius_scaling)
             print(f"Tree height scaling: expected={expected_height:.2f}, actual={actual_height:.2f}, "
                   f"original_radius={trunk_radius:.4f}, scaled_radius={scaled_trunk_radius:.4f}")
 
-    # Compute radii using Da Vinci's law
     radii_abs = compute_radii_da_vinci(tree, scaled_trunk_radius, radius_exponent, node_to_children, root_idx)
 
-    # Build parent index map in current pruned indexing
     parent_idx: list[int | None] = [None] * n_nodes
     for n, bp in enumerate(tree.branchpoints):
         parent_idx[n] = None if (bp.parent is None) else index2position.get(bp.parent, None)
 
-    # Apply smoothing along unary chains
     radii_abs = smooth_radii_along_unary_chains(tree, radii_abs, node_to_children, parent_idx)
     
     return radii_abs, scaled_trunk_radius
 
 
-def createGeometry(tree,
-    nomodifiers=True, skinmethod='NATIVE', subsurface=False,
-    bleaf=4.0,
-    leafParticles='None',
-    particlesettings=None,
-    objectParticles='None',
-    emitterscale=0.1,
-    timeperf=True,
-    addLeaves=False,
-    prune=0,
-    class_id=0,
-    radius_exponent=2.0,
-    trunk_radius=0.25,
-    taper_per_meter=0.02,
-    stem_height=0.0,
-    crown_height=0.0,
-    crown_offset=0.0,
-    trunk_radius_scaling=0.75,
-    leaf_area_scaling=0.2,
-    leaf_area_dbh_scaling=2.2,
-    leaf_area_height_scaling=0.5):
+def createGeometry(
+    tree: SCA,
+    nomodifiers: bool = True, 
+    skinmethod: str = 'NATIVE', 
+    subsurface: bool = False,
+    bleaf: float = 4.0,
+    leafParticles: str = 'None',
+    particlesettings: Optional[str] = None,
+    objectParticles: str = 'None',
+    emitterscale: float = 0.1,
+    timeperf: bool = True,
+    addLeaves: bool = False,
+    prune: int = 0,
+    class_id: int = 0,
+    radius_exponent: float = 2.0,
+    trunk_radius: float = 0.25,
+    taper_per_meter: float = 0.02,
+    stem_height: float = 0.0,
+    crown_height: float = 0.0,
+    crown_offset: float = 0.0,
+    trunk_radius_scaling: float = 0.75,
+    leaf_area_scaling: float = 0.2,
+    leaf_area_dbh_scaling: float = 2.2,
+    leaf_area_height_scaling: float = 0.5
+) -> Optional[Tuple["bpy.types.Object", Tuple["QSM", "LeafParamsDict"]]]:
 
     if particlesettings is None and leafParticles != 'None':
         raise ValueError("No particlesettings available, cannot create leaf particles")
@@ -616,20 +588,16 @@ def createGeometry(tree,
     radii=[]
     roots=set()
 
-    # prune if requested
     tree.branchpoints, index2position = pruneTree(tree.branchpoints, prune)
     if len(tree.branchpoints) < 2:
         return None
-    # Loop over all branchpoints and create connected edges
     #print('\ngenerating skeleton')
 
     for n,bp in enumerate(tree.branchpoints):
-        #print(n, bp.index, bp.v, bp.generation, bp.parent)
         if bp.v is None:
             raise RuntimeError(f"Branchpoint {n} has no position (v=None)")
         v_bp = bp.v if isinstance(bp.v, Vector) else Vector(bp.v)
         verts.append(v_bp + tree_position)
-        # placeholder; will be computed from children using the radius rule
         radii.append(0.0)
         if not (bp.parent is None) :
             parent_mapped = index2position.get(bp.parent, None)
@@ -642,40 +610,30 @@ def createGeometry(tree,
 
     timings.add('skeleton')
 
-    # Calculate expected height: stem_height + crown_height - crown_offset
     expected_height = stem_height + crown_height - crown_offset
 
-    # Compute tree radii using Da Vinci's law and smoothing with allometric scaling
     radii_abs, scaled_trunk_radius = compute_tree_radii(tree, trunk_radius, radius_exponent, index2position, expected_height, trunk_radius_scaling)
 
-    # native skinning method
     if nomodifiers == False and skinmethod == 'NATIVE':
-        # add a quad edge loop to all roots
         for r in roots:
             simpleskin(r, verts, faces, radii_abs, tree_position)
 
-    # end of native skinning section
     timings.add('nativeskin')
 
-    # create the (skinned) tree mesh
     mesh = bpy.data.meshes.new('Tree')
     mesh.from_pydata(verts, edges, faces)
     mesh.update(calc_edges=True)
 
-    # create the tree object an make it the only selected and active object in the scene
     obj_new = bpy.data.objects.new(mesh.name, mesh)
     bpy.context.view_layer.active_layer_collection.collection.objects.link(obj_new)
-    # bpy.context.collection.objects.link(obj_new)
     for ob in bpy.context.scene.objects:
         ob.select_set(False)
     bpy.context.view_layer.objects.active = obj_new
     obj_new.select_set(True)
-    # bpy.context.scene.objects.active = obj_new
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
 
     timings.add('createmesh')
 
-    # add a subsurf modifier to smooth the branches
     if nomodifiers == False:
         if subsurface:
             bpy.ops.object.modifier_add(type='SUBSURF')
@@ -683,7 +641,6 @@ def createGeometry(tree,
             bpy.context.active_object.modifiers[0].render_levels = 1
             bpy.context.active_object.modifiers[0].uv_smooth = 'PRESERVE_CORNERS'
 
-        # add a skin modifier
         if skinmethod == 'BLENDER':
 
             bpy.ops.object.modifier_add(type='SKIN')
@@ -705,8 +662,6 @@ def createGeometry(tree,
             bpy.context.active_object.modifiers[-1].render_levels = 2
 
     timings.add('modifiers')
-    # create a particles based leaf emitter (if we have leaves and/or objects)
-    # bpy.context.scene.objects.active = obj_new
     obj_processed = segmentIntoTrunkAndBranch(tree, obj_new, np.array(radii_abs))
     bpy.ops.object.shade_smooth()
 
@@ -716,15 +671,12 @@ def createGeometry(tree,
     converted_qsm = convert_sca_skeleton_to_qsm(tree, np.array(radii_abs))
     qsm_path = os.path.join(os.path.dirname(__file__), 'leafgen', 'src', 'example-data', 'generated_tree.mat')
     
-    # Read leaf parameters from the tree configuration json (defaults provided upstream)
     leaf_params = getattr(tree, 'leaf_params', None)
     if leaf_params is None:
         leaf_params = {}
     else:
-        leaf_params = dict(leaf_params)  # Make a copy to avoid modifying the original
+        leaf_params = dict(leaf_params)
     
-    # Calculate leaf area using allometric formula based on trunk radius and tree height
-    # Use the scaled trunk radius from the allometric scaling and the expected height
     calculated_leaf_area = calculate_leaf_area_from_allometry(
         trunk_radius=scaled_trunk_radius,
         tree_height=expected_height,
@@ -733,22 +685,17 @@ def createGeometry(tree,
         leaf_area_height_scaling=leaf_area_height_scaling
     )
     
-    # Override the totalLeafArea parameter with the calculated value
     leaf_params['totalLeafArea'] = calculated_leaf_area
     print(f"Calculated leaf area: {calculated_leaf_area:.2f} for tree with trunk_radius={trunk_radius:.4f}, scaled_radius={scaled_trunk_radius:.4f}, height={expected_height:.2f}")
     
-    # Skip immediate leaf generation for parallel processing - return QSM and leaf_params instead
-    # generate_foliage(converted_qsm, qsm_path, execute_matlab=True, leaf_params=leaf_params)
     timings.add('leaves_prep')
 
     if timeperf:
         print(timings)
 
-    # bpy.data.objects.remove(obj_new, do_unlink=True)
     return obj_processed, (converted_qsm, leaf_params)
 
-def segmentIntoTrunkAndBranch(tree, obj_new, radii):
-    # Get trunk nodes using the shared function
+def segmentIntoTrunkAndBranch(tree: SCA, obj_new: "bpy.types.Object", radii: np.ndarray) -> "bpy.types.Object":
     trunk_nodes = get_trunk_nodes(tree.branchpoints)
     trunk_indices = [trunk_node.index for trunk_node in trunk_nodes]
 
@@ -757,20 +704,17 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
     leave_nodes = [bp for bp in tree.branchpoints if bp not in trunk_nodes and bp.apex is None]
     branch_node_indices = [i for i in range(len(tree.branchpoints)) if i not in trunk_indices]
 
-    trunk_material = create_material("TrunkMaterial", (0.77, 0.64, 0.52, 1), 2) # light brown
-    branch_material = create_material("BranchMaterial", (0.36, 0.25, 0.20, 1), 3) # dark brown
+    trunk_material = create_material("TrunkMaterial", (0.77, 0.64, 0.52, 1), 2)
+    branch_material = create_material("BranchMaterial", (0.36, 0.25, 0.20, 1), 3)
     assign_material(obj_new, trunk_material)
     assign_material(obj_new, branch_material)
-    trunk_vertex_indices = []
-    branch_vertex_indices = []
+    trunk_vertex_indices: List[int] = []
+    branch_vertex_indices: List[int] = []
 
-    # maybe unnecessary
     bpy.context.view_layer.objects.active = obj_new
     obj_new.select_set(True)
 
     bpy.ops.object.modifier_apply(modifier="Subdivision")
-
-    # obj_new.data = final_mesh
 
     trunk_node_kd_tree = KDTree(trunk_node_positions)
     branch_node_kd_tree = KDTree(branch_node_positions)
@@ -791,7 +735,7 @@ def segmentIntoTrunkAndBranch(tree, obj_new, radii):
 
     return obj_new
 
-def find_top_of_trunk(branchpoints):
+def find_top_of_trunk(branchpoints: List[Branchpoint]) -> Branchpoint:
     node_to_children = create_inverse_graph(branchpoints)
     candidate = branchpoints[0]
     queue = node_to_children[0]
@@ -805,7 +749,7 @@ def find_top_of_trunk(branchpoints):
             queue.extend(node_to_children.get(current_index, []))
     return candidate
 
-def create_material(name, color, pass_index):
+def create_material(name: str, color: Tuple[float, float, float, float], pass_index: int) -> "bpy.types.Material":
     mat = bpy.data.materials.get(name)
     if mat is None:
         mat = bpy.data.materials.new(name=name)
@@ -817,64 +761,64 @@ def create_material(name, color, pass_index):
 
     return mat
 
-def assign_material(obj, mat):
+def assign_material(obj: "bpy.types.Object", mat: "bpy.types.Material") -> None:
     if mat.name not in obj.data.materials:
         obj.data.materials.append(mat)
 
-def assign_vertices_to_group(obj, group_name, vertex_indices):
+def assign_vertices_to_group(obj: "bpy.types.Object", group_name: str, vertex_indices: List[int]) -> None:
     if group_name not in obj.vertex_groups:
         group = obj.vertex_groups.new(name=group_name)
     else:
         group = obj.vertex_groups[group_name]
     group.add(vertex_indices, 1.0, 'ADD')
 
-class SCATree():
+class SCATree:
 
     def __init__(self,
-                class_id=0,
-                interNodeLength=0.25,
-                killDistance=0.1,
-                influenceRange=15.,
-                tropism=0.,
-                useGroups=False,
-                crownGroup='None',
-                shadowGroup='None',
-                crown_type='ellipsoid',
-                crown_height=1.0,
-                crown_width=1.0,
-                crown_offset=0.0,
-                stem_height=0.0,
-                stem_diameter=0.0,
-                shadowDensity=0.5,
-                exclusionGroup='None',
-                useTrunkGroup=False,
-                trunkGroup=None,
-                surface_bias=1.,
-                top_bias=1.,
-                randomSeed=0,
-                maxIterations=40,
-                pruningGen=0,
-                numberOfEndpoints=100,
-                newEndPointsPer1000=0,
-                maxTime=0.0,
-                bLeaf=4.0,
-                addLeaves=False,
-                emitterScale=0.01,
-                noModifiers=True,
-                subSurface=False,
-                showMarkers=False,
-                markerScale=0.05,
-                timePerformance=False,
-                apicalcontrol=0.0,
-                apicalcontrolfalloff=1.0,
-                apicalcontroltiming=10,
-                context=None,
-                trunk_radius=0.25,
-                trunk_radius_scaling=0.75,
-                leaf_area_scaling=0.2,
-                leaf_area_dbh_scaling=2.2,
-                leaf_area_height_scaling=0.5,
-                ):
+                class_id: int = 0,
+                interNodeLength: float = 0.25,
+                killDistance: float = 0.1,
+                influenceRange: float = 15.,
+                tropism: float = 0.,
+                useGroups: bool = False,
+                crownGroup: str = 'None',
+                shadowGroup: str = 'None',
+                crown_type: str = 'ellipsoid',
+                crown_height: float = 1.0,
+                crown_width: float = 1.0,
+                crown_offset: float = 0.0,
+                stem_height: float = 0.0,
+                stem_diameter: float = 0.0,
+                shadowDensity: float = 0.5,
+                exclusionGroup: str = 'None',
+                useTrunkGroup: bool = False,
+                trunkGroup: Optional[str] = None,
+                surface_bias: float = 1.,
+                top_bias: float = 1.,
+                randomSeed: int = 0,
+                maxIterations: int = 40,
+                pruningGen: int = 0,
+                numberOfEndpoints: int = 100,
+                newEndPointsPer1000: float = 0,
+                maxTime: float = 0.0,
+                bLeaf: float = 4.0,
+                addLeaves: bool = False,
+                emitterScale: float = 0.01,
+                noModifiers: bool = True,
+                subSurface: bool = False,
+                showMarkers: bool = False,
+                markerScale: float = 0.05,
+                timePerformance: bool = False,
+                apicalcontrol: float = 0.0,
+                apicalcontrolfalloff: float = 1.0,
+                apicalcontroltiming: int = 10,
+                context: Optional["bpy.types.Context"] = None,
+                trunk_radius: float = 0.25,
+                trunk_radius_scaling: float = 0.75,
+                leaf_area_scaling: float = 0.2,
+                leaf_area_dbh_scaling: float = 2.2,
+                leaf_area_height_scaling: float = 0.5,
+                ) -> None:
         self.class_id = class_id
         self.internodeLength = interNodeLength
         self.killDistance = killDistance
@@ -910,13 +854,10 @@ class SCATree():
         self.addLeaves = addLeaves
         self.addLeaves = True
 
-        # self.objectParticles = availableParticleSettings(self, context)[0]
         self.emitterScale = emitterScale
-        # self.barMaterial = availableBarkMaterials(self, context)[0]
         self.updateTree = False
         self.noModifiers = noModifiers
         self.subSurface = subSurface
-        # self.skinMethod = ('NATIVE','Space tree','Spacetrees own skinning method',1)
         self.skinMethod = 'NATIVE'
         self.showMarkers = showMarkers
         self.markerScale = markerScale
@@ -925,15 +866,11 @@ class SCATree():
         self.apicalcontrolfalloff = apicalcontrolfalloff
         self.apicalcontroltiming = apicalcontroltiming
 
-    def _prepare_common(self, context, edge_index: EdgeIndex):
+    def _prepare_common(self, context: "bpy.types.Context", edge_index: "EdgeIndex") -> Tuple[SCA, None, Timer]:
         global barkmaterials
         barkmaterials = load_materials_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'Bark')
 
-        # particlesettings = load_particlesettings_from_bundled_lib('Procedual_Blender_Forest_Simulator', 'material_lib.blend', 'LeafEmitter')
-        # bpy.types.MESH_OT_forest_generator.particlesettings = particlesettings
-
-        # self.leafParticles = availableParticleSettings(self, context, particlesettings)[9]
-        self.leafParticles = None
+        self.leafParticles: Optional[str] = None
         timings = Timer()
 
         try:
@@ -944,6 +881,7 @@ class SCATree():
         except TypeError:
             pass
 
+        volumefie: "VolumeGenerator"
         if self.crown_type == 'ellipsoid':
             volumefie = partial(ellipsoid2, self.crown_width, self.crown_height, Vector((0, 0, self.stem_height - self.crown_offset)), self.surface_bias, self.top_bias)
         elif self.crown_type == 'columnar':
@@ -951,16 +889,15 @@ class SCATree():
         elif self.crown_type == 'spreading':
             volumefie = partial(hemisphere_points, self.crown_width, Vector((0, 0, self.stem_height - self.crown_offset)), self.surface_bias, self.top_bias)
         else:
-            assert_never(self.crown_type)
+            raise ValueError(f"Unknown crown type: {self.crown_type}")
 
-        startingpoints = []
+        startingpoints: List["Branchpoint"] = []
         if self.useTrunkGroup:
             if self.trunkGroup in bpy.data.collections:
                 for ob in bpy.data.collection[self.trunkGroup].objects:
                     p = ob.location - context.scene.cursor.location
                     startingpoints.append(Branchpoint(p, None, 0))
 
-        # register per-tree min edge distance
         edge_index.set_tree_min_distance(self.class_id, 0.8)
 
         origin_loc = bpy.context.scene.cursor.location
@@ -984,28 +921,26 @@ class SCATree():
 
         return sca, None, timings
 
-    def prepare_growth(self, context, edge_index):
+    def prepare_growth(self, context: "bpy.types.Context", edge_index: EdgeIndex) -> SCA:
         timings = Timer()
         timings.add('scastart')
         sca, _, base_timings = self._prepare_common(context, edge_index)
         timings.add('sca')
 
-        # initialize step-wise growth
         sca.begin_growth(newendpointsper1000=self.newEndPointsPer1000, maxtime=self.maxTime)
 
-        self._prepared = {
+        self._prepared: Dict[str, Union[SCA, Timer]] = {
             'sca': sca,
-            # 'particlesettings': particlesettings,
             'timings': timings,
         }
         return sca
 
-    def finalize_tree(self, context):
+    def finalize_tree(self, context: "bpy.types.Context") -> Optional[Tuple["bpy.types.Object", Tuple["QSM", "LeafParamsDict"]]]:
         if not hasattr(self, '_prepared'):
             return None
 
-        sca = self._prepared['sca']
-        timings = self._prepared['timings']
+        sca: SCA = self._prepared['sca']  # type: ignore
+        timings: Timer = self._prepared['timings']  # type: ignore
 
         sca.finalize_after_growth()
 
@@ -1021,7 +956,7 @@ class SCATree():
             self.noModifiers, self.skinMethod, self.subSurface,
             self.bLeaf,
             self.leafParticles,
-            'None'
+            'None',
             'None',
             self.emitterScale,
             self.timePerformance,
@@ -1052,5 +987,3 @@ class SCATree():
 
         self.timings = timings
         return obj_new, (converted_qsm, leaf_params)
-
-    # removed legacy single-tree generation

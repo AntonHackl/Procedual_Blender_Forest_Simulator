@@ -1,16 +1,15 @@
-from typing import List, Tuple, Optional, Dict
+from typing import TYPE_CHECKING, List, Tuple, Optional, Dict
 import math
 
 import numpy as np
 from scipy.spatial import KDTree
 
-# Terrain intersection support (Blender BVH)
-try:
-    import bpy  # type: ignore
-    from mathutils.bvhtree import BVHTree  # type: ignore
-except Exception:  # Allow importing this module outside Blender for tooling/tests
-    bpy = None  # type: ignore
-    BVHTree = None  # type: ignore
+import bpy
+from mathutils.bvhtree import BVHTree
+
+if TYPE_CHECKING:
+    import bpy.types
+    from .types_definitions import BVHTreeProtocol
 
 
 def _dot3(a: Tuple[float, float, float], b: Tuple[float, float, float]) -> float:
@@ -93,8 +92,11 @@ class EdgeIndex:
         self._dirty: bool = False
         self._adds_since_rebuild: int = 0
         self.tree_min_distance: Dict[int, float] = {}
-        # Optional BVH for terrain collision checks (world space)
-        self.terrain_bvh: Optional["BVHTree"] = None
+        if TYPE_CHECKING:
+            from .types_definitions import BVHTreeProtocol
+            self.terrain_bvh: Optional[BVHTreeProtocol] = None
+        else:
+            self.terrain_bvh: Optional[object] = None
 
     def set_tree_min_distance(self, tree_id: int, min_dist: float) -> None:
         self.tree_min_distance[int(tree_id)] = float(min_dist)
@@ -129,25 +131,21 @@ class EdgeIndex:
         self._adds_since_rebuild += 1
         self._rebuild_if_needed()
 
-    def set_terrain(self, terrain_obj: object) -> None:
+    def set_terrain(self, terrain_obj: "bpy.types.Object") -> None:
         """Build a BVH for the given Blender mesh object to enable segment-vs-terrain checks.
 
         Expects a Blender MESH object. Safe to call multiple times; replaces the BVH.
         If called outside Blender or with invalid input, this becomes a no-op.
         """
-        if bpy is None or BVHTree is None:
-            raise RuntimeError("Blender BVH APIs are unavailable; cannot build terrain BVH.")
         if terrain_obj is None:
             raise ValueError("terrain_obj must be a valid Blender MESH object.")
-        # Build BVH in world space using evaluated object
-        depsgraph = bpy.context.evaluated_depsgraph_get()  # type: ignore
-        eval_obj = terrain_obj.evaluated_get(depsgraph)  # type: ignore
-        self.terrain_bvh = BVHTree.FromObject(eval_obj, depsgraph)  # type: ignore
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        eval_obj = terrain_obj.evaluated_get(depsgraph)
+        self.terrain_bvh = BVHTree.FromObject(eval_obj, depsgraph)
 
     def _segment_intersects_terrain(self, p0: Tuple[float, float, float], p1: Tuple[float, float, float]) -> bool:
         if self.terrain_bvh is None:
             raise RuntimeError("Terrain BVH not initialized. Call set_terrain() first.")
-        # Cast a ray along the segment; if any hit within length, it's intersecting
         dx = p1[0] - p0[0]
         dy = p1[1] - p0[1]
         dz = p1[2] - p0[2]
@@ -166,7 +164,6 @@ class EdgeIndex:
         return hit is not None and hit[0] is not None
 
     def validate_edge(self, p0: Tuple[float, float, float], p1: Tuple[float, float, float], tree_id: int) -> bool:
-        # Terrain collision check (always enforced if terrain BVH is available)
         if self._segment_intersects_terrain(p0, p1):
             return False
 

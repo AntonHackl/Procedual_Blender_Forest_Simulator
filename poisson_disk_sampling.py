@@ -1,15 +1,19 @@
-from typing import Tuple, List, Union, Dict, Any
+from typing import TYPE_CHECKING, Tuple, List, Union
 import numpy as np
 import random
 import bpy
 from mathutils import Vector
 
+if TYPE_CHECKING:
+    from .types_definitions import TreeConfigDict, SampledConfigDict, ConfigValue, TreePositionTuple
+
+
 def poisson_disk_sampling_on_surface(
-  surface: bpy.types.Object,
+  surface: "bpy.types.Object",
   configuration_weights: List[float],
-  base_configurations: List[Dict[str, Any]],
+  base_configurations: List["TreeConfigDict"],
   k: int = 30
-) -> List[Tuple[Tuple[float, float, float], Dict[str, Any]]]:
+) -> List["TreePositionTuple"]:
   """
   Generate Poisson-disc distributed tree positions on a terrain mesh.
 
@@ -23,15 +27,17 @@ def poisson_disk_sampling_on_surface(
   - k: attempts per active point
   Returns: list of ((x, y, z), sampled_config_dict)
   """
+  if not TYPE_CHECKING:
+      import bpy
   
 
 
   if not surface or surface.type != 'MESH':
     return []
 
-  obj: bpy.types.Object = surface
+  obj: "bpy.types.Object" = surface
   mw = obj.matrix_world
-  verts_world: List[Vector] = [mw @ v.co for v in obj.data.vertices]
+  verts_world: List["Vector"] = [mw @ v.co for v in obj.data.vertices]
   if not verts_world:
     return []
 
@@ -41,7 +47,6 @@ def poisson_disk_sampling_on_surface(
   max_y = max(v.y for v in verts_world)
   max_z = max(v.z for v in verts_world)
 
-  # Sampling helpers mirror logic from caller
   _int_keys = {"numberOfEndpoints", "maxIterations"}
   _positive_float_keys = {
     "interNodeLength", "influenceRange", "stem_height",
@@ -49,22 +54,22 @@ def poisson_disk_sampling_on_surface(
     "top_bias", "trunk_radius"
   }
 
-  def _is_mean_std_list(value: Any) -> bool:
+  def _is_mean_std_list(value: "ConfigValue") -> bool:
     try:
       return isinstance(value, (list, tuple)) and len(value) == 2 and all(isinstance(x, (int, float)) for x in value)
     except Exception:
       return False
 
-  def _sample_value(key: str, value: float | int | str | dict) -> Any:
+  def _sample_value(key: str, value: "ConfigValue") -> Union[float, int, str, dict]:
     if isinstance(value, dict):
       return value
     if isinstance(value, str):
       return value
     if _is_mean_std_list(value):
-      mean, std = float(value[0]), max(float(value[1]), 0.0)
-      sampled = random.gauss(mean, std) if std > 0 else mean
+      mean, std = float(value[0]), max(float(value[1]), 0.0)  # type: ignore
+      sampled: Union[float, int] = random.gauss(mean, std) if std > 0 else mean
     else:
-      sampled = value
+      sampled = value  # type: ignore
     if key in _int_keys:
       try:
         sampled = int(round(float(sampled)))
@@ -84,30 +89,32 @@ def poisson_disk_sampling_on_surface(
       return sampled
     return sampled
 
-  def _sample_configuration(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    sampled: Dict[str, Any] = {}
+  def _sample_configuration(cfg: "TreeConfigDict") -> "SampledConfigDict":
+    sampled: "SampledConfigDict" = {}  # type: ignore
     for k, v in cfg.items():
       if k == 'leaf_params':
-        sampled[k] = v
+        sampled[k] = v  # type: ignore
       else:
-        sampled[k] = _sample_value(k, v)
+        sampled[k] = _sample_value(k, v)  # type: ignore
     return sampled
 
-  def choose_config() -> Dict[str, Any]:
+  def choose_config() -> "SampledConfigDict":
     idx = random.choices(range(len(configuration_weights)), weights=configuration_weights, k=1)[0]
     return _sample_configuration(base_configurations[idx])
 
-  def min_distance(cfg_a: Dict[str, Any], cfg_b: Dict[str, Any]) -> float:
+  def min_distance(cfg_a: "SampledConfigDict", cfg_b: "SampledConfigDict") -> float:
     cw_a = float(cfg_a.get('crown_width', 1.0))
     cw_b = float(cfg_b.get('crown_width', 1.0))
     return max(cw_a, cw_b) / 2.0 + min(cw_a, cw_b) * 0.2
 
   def generate_candidate_xy(center_xy: Tuple[float, float], base_r: float) -> Tuple[float, float]:
-    r = base_r * (1.0 + random.random())  # between R and 2R
+    r = base_r * (1.0 + random.random())
     theta = 2.0 * np.pi * random.random()
     return (center_xy[0] + r * np.cos(theta), center_xy[1] + r * np.sin(theta))
 
   def raycast_to_surface(x: float, y: float) -> Union[Tuple[float, float, float], None]:
+    if not TYPE_CHECKING:
+        import bpy
     origin = Vector((x, y, max_z + 100.0))
     direction = Vector((0.0, 0.0, -1.0))
     depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -117,11 +124,9 @@ def poisson_disk_sampling_on_surface(
       return (float(location.x), float(location.y), float(location.z))
     return None
 
-  # storage with type annotations
-  active_list: List[Tuple[Tuple[float, float, float], Dict[str, Any]]] = []
-  points: List[Tuple[Tuple[float, float, float], Dict[str, Any]]] = []
+  active_list: List["TreePositionTuple"] = []
+  points: List["TreePositionTuple"] = []
 
-  # seed with an initial valid point
   for _ in range(1000):
     sx = random.uniform(min_x, max_x)
     sy = random.uniform(min_y, max_y)
@@ -129,14 +134,14 @@ def poisson_disk_sampling_on_surface(
     if hit is None:
       continue
     ci = choose_config()
-    initial = (hit, ci)
+    initial: "TreePositionTuple" = (hit, ci)
     points.append(initial)
     active_list.append(initial)
     break
   if not active_list:
     return []
 
-  def too_near(new_point: Tuple[Tuple[float, float, float], Dict[str, Any]], others: List[Tuple[Tuple[float, float, float], Dict[str, Any]]]) -> bool:
+  def too_near(new_point: "TreePositionTuple", others: List["TreePositionTuple"]) -> bool:
     if not others:
       return False
     p = np.asarray(new_point[0])
@@ -173,7 +178,7 @@ def poisson_disk_sampling_on_surface(
 
 
 def poisson_disk_sampling_low_vegetation(
-    surface: bpy.types.Object,
+    surface: "bpy.types.Object",
     density: float = 1.0,
     k: int = 30
 ) -> List[Tuple[float, float, float]]:
@@ -185,13 +190,15 @@ def poisson_disk_sampling_low_vegetation(
     - k: attempts per active point
     Returns: list of (x, y, z) positions
     """
+    if not TYPE_CHECKING:
+        import bpy
     
     if not surface or surface.type != 'MESH':
         return []
 
-    obj: bpy.types.Object = surface
+    obj: "bpy.types.Object" = surface
     mw = obj.matrix_world
-    verts_world: List[Vector] = [mw @ v.co for v in obj.data.vertices]
+    verts_world: List["Vector"] = [mw @ v.co for v in obj.data.vertices]
     if not verts_world:
         return []
 
@@ -201,15 +208,16 @@ def poisson_disk_sampling_low_vegetation(
     max_y = max(v.y for v in verts_world)
     max_z = max(v.z for v in verts_world)
 
-    # Base radius for low vegetation (adjust based on typical vegetation size)
-    base_radius = 0.5 / density  # Smaller radius for higher density
+    base_radius = 0.5 / density
 
     def generate_candidate_xy(center_xy: Tuple[float, float], r: float) -> Tuple[float, float]:
-        radius = r * (1.0 + random.random())  # between R and 2R
+        radius = r * (1.0 + random.random())
         theta = 2.0 * np.pi * random.random()
         return (center_xy[0] + radius * np.cos(theta), center_xy[1] + radius * np.sin(theta))
 
     def raycast_to_surface(x: float, y: float) -> Union[Tuple[float, float, float], None]:
+        if not TYPE_CHECKING:
+            import bpy
         origin = Vector((x, y, max_z + 100.0))
         direction = Vector((0.0, 0.0, -1.0))
         depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -219,11 +227,9 @@ def poisson_disk_sampling_low_vegetation(
             return (float(location.x), float(location.y), float(location.z))
         return None
 
-    # Storage
     active_list: List[Tuple[float, float, float]] = []
     points: List[Tuple[float, float, float]] = []
 
-    # Seed with an initial valid point
     for _ in range(1000):
         sx = random.uniform(min_x, max_x)
         sy = random.uniform(min_y, max_y)

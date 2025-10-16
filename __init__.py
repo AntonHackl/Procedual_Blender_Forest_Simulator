@@ -1,30 +1,35 @@
 import sys
 
 sys.path.append("C:\\users\\anton\\appdata\\roaming\\python\\python311\\site-packages")
-from .parallel_leaf_generation import (
-    MatlabEngineProvider,
-    ParallelLeafGenerator, 
-    ParallelLeafTask, 
-    finalize_parallel_leaf_results
-)
 
 import time
 import gc
 import os
-from typing import Any, List, Tuple
+from typing import TYPE_CHECKING, List, Tuple, Optional, Dict, Set
 from dataclasses import dataclass
 import random
 import json
 import numpy as np
 
 import bpy
+import bmesh
 from mathutils import Vector
+from .parallel_leaf_generation import (
+    MatlabEngineProvider,
+    ParallelLeafGenerator, 
+    ParallelLeafTask, 
+    finalize_parallel_leaf_results
+)
 from .tree_mesh_generation import SCATree
 from .sca import SCA
 from .edge_index import EdgeIndex
-import bmesh
-
 from .poisson_disk_sampling import poisson_disk_sampling_on_surface, poisson_disk_sampling_low_vegetation
+
+if TYPE_CHECKING:
+    import bpy.types
+    import bmesh.types
+    from .parallel_leaf_generation import QSM, LeafParamsDict
+    from .types_definitions import TreeConfigDict, SampledConfigDict
 
 bl_info = {
     "name": "Forest Generator",
@@ -41,21 +46,21 @@ bl_info = {
 @dataclass
 class PreparedTree:
     index: int
-    pos: Tuple[float, float]
-    config: dict
-    location: Vector
-    generator: SCATree
-    sca: SCA
+    pos: Tuple[float, float, float]
+    config: "SampledConfigDict"
+    location: "Vector"
+    generator: "SCATree"
+    sca: "SCA"
     start_time: float
 
-class TreeConfiguration(bpy.types.PropertyGroup):
-    path: bpy.props.StringProperty(
+class TreeConfiguration(bpy.types.PropertyGroup):  # type: ignore
+    path: bpy.props.StringProperty(  # type: ignore
         name="Tree Configuration File", 
         description="Path to the file", 
         subtype='FILE_PATH',
-        default="C:\\Users\\anton\\Documents\\Uni\\Spatial_Data_Analysis\\Procedual_Blender_Forest_Simulator\\tree_configs\\sphere_tree.json"  
+        default=""  
     )
-    weight: bpy.props.FloatProperty(
+    weight: bpy.props.FloatProperty(  # type: ignore
         name="Weight",
         description="Weight of the tree configuration",
         default=1,
@@ -101,17 +106,11 @@ class ForestGenerator(bpy.types.Operator):
     )
     
     @classmethod
-    def poll(self, context):
-        # Check if we are in object mode
+    def poll(cls, context: "bpy.types.Context") -> bool:
         return context.mode == 'OBJECT'
     
-    def update_tree_configurations(self):
-        """
-        Updates the tree configurations by adding or removing elements to match the desired tree configuration count.
-        
-        :return: None
-        """
-        
+    def update_tree_configurations(self) -> None:
+        """Updates the tree configurations by adding or removing elements to match the desired tree configuration count."""
         current_count = len(self.tree_configurations)
         if self.treeConfigurationCount > current_count:
             for _ in range(self.treeConfigurationCount - current_count):
@@ -120,16 +119,8 @@ class ForestGenerator(bpy.types.Operator):
             for _ in range(current_count - self.treeConfigurationCount):
                 self.tree_configurations.remove(len(self.tree_configurations) - 1)
     
-    def draw(self, context):
-        """
-        Draws the UI layout for the add-on, including generation settings and tree configurations.
-        
-        :param context: The context in which the UI is being drawn.
-        :type context: bpy.types.Context
-        :return: None
-        :rtype: None
-        """
-        
+    def draw(self, context: "bpy.types.Context") -> None:
+        """Draws the UI layout for the add-on, including generation settings and tree configurations."""
         layout = self.layout
         col1 = layout.column()
         box = layout.box()
@@ -143,23 +134,16 @@ class ForestGenerator(bpy.types.Operator):
 
         for i, tree_config in enumerate(self.tree_configurations):
             col = box.column(align=True)
-            col.scale_x = 20  # Adjust width scaling
-            col.alignment = 'EXPAND'  # Expand to fit available space
+            col.scale_x = 20
+            col.alignment = 'EXPAND'
 
             col.prop(tree_config, "path", text="Tree Config")
             col.prop(tree_config, "weight", text="Weight")
             
             col.separator()
         
-    def execute(self, context):
-        """
-        Executes the process of procedurally generating a forest. The forest is generated based on the configuration of the operator.
-        
-        :param context: The Blender context in which the operator is executed.
-        :type context: bpy.types.Context
-        :return: A set indicating the execution status of the operator.
-        :rtype: Set[str, str]
-        """
+    def execute(self, context: "bpy.types.Context") -> Set[str]:
+        """Executes the process of procedurally generating a forest."""
         random.seed(random.randint(0, 1_000_000))
         self.update_tree_configurations()
         if not self.updateForest:
@@ -168,7 +152,7 @@ class ForestGenerator(bpy.types.Operator):
         terrain_obj = bpy.data.objects.get(self.surface_object_name) if self.surface_object_name else None
         use_mesh_surface = terrain_obj is not None and getattr(terrain_obj.data, 'polygons', None) is not None
 
-        tree_configurations: List[dict[str, Any]] = []
+        tree_configurations: List["TreeConfigDict"] = []
         configuration_weights: List[float] = []
         for tree_config in self.tree_configurations:
             with open(tree_config.path) as tree_config_json:
@@ -184,7 +168,6 @@ class ForestGenerator(bpy.types.Operator):
                     'totalLeafArea': 20,
                 }
 
-        # Pre-sample full configurations in Poisson sampling and receive per-tree sampled configs
         tree_positions = []
         if use_mesh_surface:
             tree_positions = poisson_disk_sampling_on_surface(terrain_obj, configuration_weights, tree_configurations)
@@ -238,11 +221,10 @@ class ForestGenerator(bpy.types.Operator):
             max_generations = max(t.sca.maxiterations for t in prepared_trees)
             print(f"Starting growth simulation with {max_generations} generations")
             
-            # Calculate progress tracking intervals (every 10%)
             progress_interval = max(1, max_generations // 10)
             last_progress_reported = 0
             
-            for gen in range(10):            # for gen in range(max_generations):
+            for gen in range(max_generations):
                 all_finished = True
                 trees_this_generation = prepared_trees.copy()
                 random.shuffle(trees_this_generation)
@@ -251,7 +233,6 @@ class ForestGenerator(bpy.types.Operator):
                         t.sca.step_growth(gen)
                     all_finished = all_finished and t.sca.is_finished()
                 
-                # Report progress every 10%
                 if gen > 0 and (gen % progress_interval == 0 or gen == max_generations - 1):
                     progress_percent = round((gen / max_generations) * 100)
                     if progress_percent > last_progress_reported:
@@ -263,26 +244,21 @@ class ForestGenerator(bpy.types.Operator):
                     print(f"All trees finished growing after {gen + 1} generations ({final_progress}% complete)")
                     break
 
-        # Screenshot mode: visualize endpoints as tiny spheres with random per-tree color, then early return
         if self.screenshot_mode:
             try:
                 preview_collection = self.get_or_create_collection("SCA Endpoints Preview")
-                # Create a small UV sphere mesh once and instance it per endpoint
                 sphere_mesh = bpy.data.meshes.get("EndpointSphere")
                 if sphere_mesh is None:
                     sphere_mesh = bpy.data.meshes.new("EndpointSphere")
                     bm = bmesh.new()
-                    # Larger endpoint sphere for better visibility (radius ~ 0.05 => diameter ~ 0.10)
                     bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=0.05)
                     bm.to_mesh(sphere_mesh)
                     bm.free()
 
                 for t in prepared_trees:
-                    # Build endpoints after growth
                     try:
                         t.sca.finalize_after_growth()
                         mat = self.create_random_material(f"TreeColor_{t.index}")
-                        # Create a per-tree mesh copy so materials don't clash across trees
                         tree_sphere_mesh = sphere_mesh.copy()
                         tree_sphere_mesh.name = f"EndpointSphere_Tree{t.index}"
                         if mat is not None:
@@ -299,12 +275,10 @@ class ForestGenerator(bpy.types.Operator):
                 print("Screenshot mode: displayed endpoint spheres only. Skipping mesh/foliage/vegetation generation.")
             except Exception as e:
                 print(f"Screenshot mode failed: {e}")
-            # Early return to avoid heavy generation steps
             self.updateForest = False
             bpy.context.scene.cursor.location = original_cursor_location
             return {'FINISHED'}
 
-        # First phase: Generate all tree meshes (without leaves)
         finalized_trees = []
         parallel_leaf_tasks = []
         tree_locations = {}
@@ -320,10 +294,8 @@ class ForestGenerator(bpy.types.Operator):
                 sca_tree_mesh.location = t.location
                 finalized_trees.append(sca_tree_mesh)
                 
-                # Store tree location for leaf import
                 tree_locations[t.index] = t.location
                 
-                # Check if tree has QSM data and leaf params for parallel processing
                 if converted_qsm is not None and leaf_params is not None:
                     parallel_leaf_tasks.append(ParallelLeafTask(
                         tree_id=t.index,
@@ -337,22 +309,18 @@ class ForestGenerator(bpy.types.Operator):
                 print(f"{i+1} out of {len(prepared_trees)} tree meshes generated at {t.pos} in {elapsed_time:.2f} seconds")
             except Exception as e:
                 print(f"Error generating tree {t.index} at {t.pos}: {e}")
-                # Attempt to delete the tree object from the scene if it exists
                 tree_obj_name = f"Tree_{t.index}"
                 tree_obj = bpy.data.objects.get(tree_obj_name)
                 if tree_obj is not None:
                     bpy.data.objects.remove(tree_obj, do_unlink=True)
 
-        # Second phase: Generate leaves in parallel
         if parallel_leaf_tasks:
             print(f"Phase 2: Generating leaves for {len(parallel_leaf_tasks)} trees in parallel...")
             with ParallelLeafGenerator(max_workers=self.max_concurrent_foliage_generations) as leaf_generator:
                 leaf_results = leaf_generator.generate_leaves_parallel(parallel_leaf_tasks)
                 
-                # Finalize all successful leaf results (position and parent)
                 finalize_parallel_leaf_results(leaf_results, tree_locations)
         
-        # Clean up any remaining singleton MATLAB engine (shouldn't be needed now)
         try:
             matlab_engine_provider = MatlabEngineProvider()
             if matlab_engine_provider.is_engine_running():
@@ -363,19 +331,15 @@ class ForestGenerator(bpy.types.Operator):
         self.updateForest = False
         bpy.context.scene.cursor.location = original_cursor_location
 
-        # Organize trees and leaf exports into collection first
         trees_collection = self.get_or_create_collection("Trees")
         for obj in bpy.context.scene.objects:
             if obj.name.startswith("Tree_") or obj.name.startswith("leaves_export"):
                 self.move_to_collection(obj, trees_collection)
         
-        # Place low vegetation
         if self.low_vegetation_density > 0:
             self.place_low_vegetation(terrain_obj)
 
-        # Purge unused Blender data-blocks and run Python GC to free memory
         try:
-            # Recursively remove all orphan data (meshes, materials, images, etc.)
             bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
         except Exception as e:
             print(f"Orphans purge failed: {e}")
@@ -386,11 +350,10 @@ class ForestGenerator(bpy.types.Operator):
         
         return {'FINISHED'}
     
-    def place_low_vegetation(self, terrain_obj):
+    def place_low_vegetation(self, terrain_obj: "bpy.types.Object") -> None:
         """Place low vegetation objects using Poisson disk sampling."""
         print("Placing low vegetation...")
         
-        # Get low vegetation positions
         vegetation_positions = poisson_disk_sampling_low_vegetation(
             terrain_obj, 
             self.low_vegetation_density
@@ -400,67 +363,48 @@ class ForestGenerator(bpy.types.Operator):
             print("No low vegetation positions generated.")
             return
         
-        # Create or get low vegetation collection
         low_vegetation_collection = self.get_or_create_collection("Low Vegetation")
-        
-        # Load low vegetation models from LowVegetation.blend
         vegetation_models = self.load_low_vegetation_models()
         
         if not vegetation_models:
             print("No low vegetation models found.")
             return
         
-        # Calculate all bounding boxes and max height once
         vegetation_bboxes = self.calculate_vegetation_bounding_boxes(vegetation_models)
         max_veg_height = self.get_max_vegetation_height_from_bboxes(vegetation_bboxes)
-        
-        # Calculate tree bounding boxes once
         tree_bboxes = self.calculate_tree_bounding_boxes(max_veg_height)
-        
-        # Create low vegetation material
         low_veg_material = self.create_low_vegetation_material()
         
-        # Place vegetation objects
         placed_count = 0
         for pos in vegetation_positions:
-            # Choose random vegetation model first
             model_name = random.choice(list(vegetation_models.keys()))
             model_obj = vegetation_models[model_name]
             
-            # Check if position would cause collision with existing trees
             if self.is_too_close_to_trees(pos, model_name, vegetation_bboxes, tree_bboxes):
                 continue
             
-            # Create instance
             new_obj = model_obj.copy()
             new_obj.data = model_obj.data.copy()
             new_obj.name = f"LowVegetation_{placed_count}"
-            
-            # Position on terrain
             new_obj.location = (pos[0], pos[1], pos[2])
             
-            # Get terrain normal at this point and orient the object
             normal = self.get_terrain_normal_at_point(terrain_obj, pos)
             if normal:
-                # Create rotation matrix to align with terrain normal
                 up_vector = Vector((0, 0, 1))
                 rotation_matrix = up_vector.rotation_difference(normal).to_matrix()
                 new_obj.rotation_euler = rotation_matrix.to_euler()
             
-            # Apply low vegetation material
             if new_obj.data.materials:
                 new_obj.data.materials[0] = low_veg_material
             else:
                 new_obj.data.materials.append(low_veg_material)
             
-            # Add to collection
             low_vegetation_collection.objects.link(new_obj)
-            
             placed_count += 1
         
         print(f"Placed {placed_count} low vegetation objects.")
     
-    def get_or_create_collection(self, collection_name):
+    def get_or_create_collection(self, collection_name: str) -> "bpy.types.Collection":
         """Get or create a collection with the given name."""
         if collection_name in bpy.data.collections:
             return bpy.data.collections[collection_name]
@@ -469,25 +413,21 @@ class ForestGenerator(bpy.types.Operator):
             bpy.context.scene.collection.children.link(new_collection)
             return new_collection
     
-    def move_to_collection(self, obj, target_collection):
+    def move_to_collection(self, obj: "bpy.types.Object", target_collection: "bpy.types.Collection") -> None:
         """Move an object to the specified collection."""
-        # Remove from scene collection if present
         if obj.name in bpy.context.scene.collection.objects:
             bpy.context.scene.collection.objects.unlink(obj)
         
-        # Remove from all other collections
         for collection in bpy.data.collections:
             if obj.name in collection.objects:
                 collection.objects.unlink(obj)
         
-        # Add to target collection
         target_collection.objects.link(obj)
     
-    def load_low_vegetation_models(self):
+    def load_low_vegetation_models(self) -> Dict[str, "bpy.types.Object"]:
         """Load low vegetation models from LowVegetation.blend file."""
-        models = {}
+        models: Dict[str, "bpy.types.Object"] = {}
         
-        # Look for LowVegetation.blend in the addon directory
         addon_dir = os.path.dirname(__file__)
         low_veg_path = os.path.join(addon_dir, "low_vegetation", "LowVegetation.blend")
         
@@ -496,13 +436,10 @@ class ForestGenerator(bpy.types.Operator):
             return models
         
         try:
-            # Load the blend file
             with bpy.data.libraries.load(low_veg_path, link=False) as (data_from, data_to):
-                # Load all objects and filter by name
                 data_to.objects = [name for name in data_from.objects 
                                  if name.startswith(('fern_02_', 'High grass clump'))]
             
-            # Store the loaded objects
             for obj in data_to.objects:
                 if obj is not None:
                     models[obj.name] = obj
@@ -516,38 +453,40 @@ class ForestGenerator(bpy.types.Operator):
         
         return models
     
-    def create_low_vegetation_material(self):
+    def create_low_vegetation_material(self) -> "bpy.types.Material":
         """Create dark green material for low vegetation."""
         mat_name = "Low Vegetation"
         
-        # Check if material already exists
         if mat_name in bpy.data.materials:
             return bpy.data.materials[mat_name]
         
-        # Create new material
         mat = bpy.data.materials.new(name=mat_name)
         mat.diffuse_color = (0.1, 0.3, 0.1, 1.0)
-
         return mat
     
-    def is_too_close_to_trees(self, pos, model_name, vegetation_bboxes, tree_bboxes):
+    def is_too_close_to_trees(
+        self, 
+        pos: Tuple[float, float, float], 
+        model_name: str, 
+        vegetation_bboxes: Dict[str, Dict[str, Vector]], 
+        tree_bboxes: Dict[str, Dict[str, Vector]]
+    ) -> bool:
         """Check if vegetation object would collide with existing trees using pre-calculated bounding boxes."""
         vegetation_bbox = vegetation_bboxes.get(model_name)
         if not vegetation_bbox:
-            return False  # If no bbox data, allow placement
+            return False
             
         for tree_name, tree_bbox in tree_bboxes.items():
             if self.check_bbox_collision(vegetation_bbox, pos, tree_bbox):
                 return True
         return False
     
-    def calculate_vegetation_bounding_boxes(self, vegetation_models):
+    def calculate_vegetation_bounding_boxes(self, vegetation_models: Dict[str, "bpy.types.Object"]) -> Dict[str, Dict[str, Vector]]:
         """Calculate bounding boxes for all vegetation models once."""
-        vegetation_bboxes = {}
+        vegetation_bboxes: Dict[str, Dict[str, Vector]] = {}
         
         for model_name, model_obj in vegetation_models.items():
             try:
-                # Get bounding box of the model
                 bbox_corners = [model_obj.matrix_world @ Vector(corner) for corner in model_obj.bound_box]
                 vegetation_bboxes[model_name] = {
                     'min': Vector((
@@ -567,36 +506,31 @@ class ForestGenerator(bpy.types.Operator):
         
         return vegetation_bboxes
     
-    def get_max_vegetation_height_from_bboxes(self, vegetation_bboxes):
+    def get_max_vegetation_height_from_bboxes(self, vegetation_bboxes: Dict[str, Dict[str, Vector]]) -> float:
         """Get maximum height from pre-calculated bounding boxes."""
         max_height = 0.0
         
         for model_name, bbox_data in vegetation_bboxes.items():
-            max_height = max(max_height, bbox_data['height'])
+            max_height = max(max_height, bbox_data['height'])  # type: ignore
         
-        # Add some buffer for safety
         return max_height + 0.5
     
-    def calculate_tree_bounding_boxes(self, max_veg_height):
+    def calculate_tree_bounding_boxes(self, max_veg_height: float) -> Dict[str, Dict[str, Vector]]:
         """Calculate height-limited bounding boxes for all trees once."""
-        tree_bboxes = {}
+        tree_bboxes: Dict[str, Dict[str, Vector]] = {}
         
         for obj in bpy.context.scene.objects:
             if obj.name.startswith("Tree_"):
                 try:
-                    # Get tree vertices and filter by height
                     tree_mesh = obj.data
                     tree_vertices_world = [obj.matrix_world @ v.co for v in tree_mesh.vertices]
                     
-                    # Filter vertices to only those within the height range of low vegetation
                     tree_base_z = min(v.z for v in tree_vertices_world)
                     max_tree_z_for_collision = tree_base_z + max_veg_height
                     
-                    # Only consider tree vertices up to the maximum vegetation height
                     filtered_vertices = [v for v in tree_vertices_world if v.z <= max_tree_z_for_collision]
                     
                     if filtered_vertices:
-                        # Calculate tree bounding box from filtered vertices
                         tree_bboxes[obj.name] = {
                             'min': Vector((
                                 min(v.x for v in filtered_vertices),
@@ -614,18 +548,20 @@ class ForestGenerator(bpy.types.Operator):
         
         return tree_bboxes
     
-    def check_bbox_collision(self, vegetation_bbox, vegetation_pos, tree_bbox):
+    def check_bbox_collision(
+        self, 
+        vegetation_bbox: Dict[str, Vector], 
+        vegetation_pos: Tuple[float, float, float], 
+        tree_bbox: Dict[str, Vector]
+    ) -> bool:
         """Check collision between vegetation and pre-calculated tree bounding box."""
         try:
-            # Calculate vegetation bounding box at the test position
-            # Use the pre-calculated bbox dimensions and translate to the new position
             bbox_size = vegetation_bbox['max'] - vegetation_bbox['min']
             pos_vector = Vector(vegetation_pos)
             
             veg_min = pos_vector - bbox_size * 0.5
             veg_max = pos_vector + bbox_size * 0.5
             
-            # Check if bounding boxes overlap
             return not (
                 tree_bbox['max'].x < veg_min.x or tree_bbox['min'].x > veg_max.x or
                 tree_bbox['max'].y < veg_min.y or tree_bbox['min'].y > veg_max.y or
@@ -634,12 +570,11 @@ class ForestGenerator(bpy.types.Operator):
             
         except Exception as e:
             print(f"Error in bbox collision check: {e}")
-            return True  # Conservative: assume collision if error
+            return True
     
-    def get_terrain_normal_at_point(self, terrain_obj, pos):
+    def get_terrain_normal_at_point(self, terrain_obj: "bpy.types.Object", pos: Tuple[float, float, float]) -> Optional[Vector]:
         """Get terrain normal at a specific point."""
         try:
-            # Raycast from above the point
             origin = Vector((pos[0], pos[1], pos[2] + 100.0))
             direction = Vector((0.0, 0.0, -1.0))
             
@@ -654,24 +589,24 @@ class ForestGenerator(bpy.types.Operator):
         
         return None
         
-    def create_random_material(self, name):
+    def create_random_material(self, name: str) -> "bpy.types.Material":
         mat = bpy.data.materials.new(name)
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes["Principled BSDF"]
         bsdf.inputs['Base Color'].default_value = (random.random(), random.random(), random.random(), 1)
         return mat
             
-def menu_func(self, context):
-    op = self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest", icon='PLUGIN')
+def menu_func(self: object, context: "bpy.types.Context") -> None:
+    op = self.layout.operator(ForestGenerator.bl_idname, text="Generate Forest", icon='PLUGIN')  # type: ignore
     op.updateForest = False
 
-def register():
+def register() -> None:
     bpy.utils.register_class(TreeConfiguration)
     bpy.utils.register_class(ForestGenerator)
     bpy.types.VIEW3D_MT_mesh_add.append(menu_func)
 
 
-def unregister():
+def unregister() -> None:
     matlab_engine_provider = MatlabEngineProvider()
     matlab_engine_provider.quit_engine()
     bpy.types.VIEW3D_MT_mesh_add.remove(menu_func)

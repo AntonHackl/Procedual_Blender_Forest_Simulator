@@ -8,14 +8,18 @@ in memory without requiring temporary files or disk I/O.
 import os
 import time
 from dataclasses import dataclass, asdict
-from typing import Dict, Any, Optional, List, Tuple
-import matlab.engine
+from typing import TYPE_CHECKING, Dict, Optional, List, Tuple, Union
 import numpy as np
 from scipy.io import savemat
 from mathutils import Vector
-
 from .utils import create_inverse_graph
 from .sca import SCA
+import matlab.engine
+
+if TYPE_CHECKING:
+    import bpy.types
+    from .types_definitions import MatlabEngineProtocol, MatlabFutureProtocol, LeafParamsDict
+
 
 
 @dataclass(frozen=True)
@@ -36,38 +40,31 @@ class ConversionNode:
 
 
 class MatlabEngineProvider:
-    """
-    Singleton class to manage a single MATLAB engine instance.
-    """
+    """Singleton class to manage a single MATLAB engine instance."""
     _instance: Optional['MatlabEngineProvider'] = None
-    _engine: Optional[matlab.engine.MatlabEngine] = None
+    _engine: Optional["MatlabEngineProtocol"] = None
     
-    def __new__(cls):
+    def __new__(cls) -> "MatlabEngineProvider":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
     
-    def get_engine(self) -> matlab.engine.MatlabEngine:
-        """
-        Returns the MATLAB engine instance, creating it if it doesn't exist.
-        
-        :return: MATLAB engine instance
-        :raises: Exception if engine cannot be started
-        """
+    def get_engine(self) -> "MatlabEngineProtocol":
+        """Returns the MATLAB engine instance, creating it if it doesn't exist."""
+        if not TYPE_CHECKING:
+            import matlab.engine
         if self._engine is None:
             try:
                 print("Starting MATLAB engine...")
-                self._engine = matlab.engine.start_matlab()
+                self._engine = matlab.engine.start_matlab()  # type: ignore
                 print("MATLAB engine started successfully")
             except Exception as e:
                 print(f"Failed to start MATLAB engine: {e}")
                 raise
         return self._engine
     
-    def quit_engine(self):
-        """
-        Quits the MATLAB engine and resets the singleton state.
-        """
+    def quit_engine(self) -> None:
+        """Quits the MATLAB engine and resets the singleton state."""
         if self._engine is not None:
             try:
                 self._engine.quit()
@@ -78,23 +75,21 @@ class MatlabEngineProvider:
                 self._engine = None
     
     def is_engine_running(self) -> bool:
-        """
-        Check if the MATLAB engine is currently running.
-        
-        :return: True if engine is running, False otherwise
-        """
+        """Check if the MATLAB engine is currently running."""
         return self._engine is not None
 
 
-def convert_qsm_to_matlab_struct(engine: matlab.engine.MatlabEngine, qsm: QSM):
+def convert_qsm_to_matlab_struct(engine: "MatlabEngineProtocol", qsm: QSM) -> object:
     """Convert QSM dataclass to MATLAB struct format."""
+    if not TYPE_CHECKING:
+        import matlab.engine
     cylinder_data = {
-        'start': matlab.double(qsm.start.tolist()),
-        'axis': matlab.double(qsm.axis.tolist()),
-        'length': matlab.double(qsm.length.tolist()),
-        'radius': matlab.double(qsm.radius.tolist()),
-        'parent': matlab.double(qsm.parent.tolist()),
-        'branch': matlab.double(qsm.branch.tolist())
+        'start': matlab.double(qsm.start.tolist()),  # type: ignore
+        'axis': matlab.double(qsm.axis.tolist()),  # type: ignore
+        'length': matlab.double(qsm.length.tolist()),  # type: ignore
+        'radius': matlab.double(qsm.radius.tolist()),  # type: ignore
+        'parent': matlab.double(qsm.parent.tolist()),  # type: ignore
+        'branch': matlab.double(qsm.branch.tolist())  # type: ignore
     }
     
     return engine.feval('struct', 'cylinder', engine.feval('struct', 
@@ -106,22 +101,24 @@ def convert_qsm_to_matlab_struct(engine: matlab.engine.MatlabEngine, qsm: QSM):
                        'branch', cylinder_data['branch']))
 
 
-def create_leaf_params_struct(engine: matlab.engine.MatlabEngine, leaf_params: Dict[str, Any]):
+def create_leaf_params_struct(engine: "MatlabEngineProtocol", leaf_params: "LeafParamsDict") -> object:
     """Create MATLAB struct from leaf parameters."""
-    mpairs = []
+    if not TYPE_CHECKING:
+        import matlab.engine
+    mpairs: List[Union[str, object]] = []
     
-    def add_pair(name: str, value):
+    def add_pair(name: str, value: Union[None, List[float], float, int]) -> None:
         nonlocal mpairs
         if value is None:
             return
         if isinstance(value, (list, tuple)):
-            mpairs.extend([name, matlab.double([list(value)]) if len(value) > 1 else matlab.double([value])])
+            mpairs.extend([name, matlab.double([list(value)]) if len(value) > 1 else matlab.double([value])])  # type: ignore
         elif isinstance(value, (int, float)):
-            mpairs.extend([name, matlab.double([float(value)])])
+            mpairs.extend([name, matlab.double([float(value)])])  # type: ignore
         else:
             try:
                 arr = np.asarray(value).astype(float).reshape(1, -1)
-                mpairs.extend([name, matlab.double(arr.tolist())])
+                mpairs.extend([name, matlab.double(arr.tolist())])  # type: ignore
             except Exception:
                 pass
     
@@ -133,17 +130,19 @@ def create_leaf_params_struct(engine: matlab.engine.MatlabEngine, leaf_params: D
     return engine.feval('struct', *mpairs) if mpairs else engine.eval('struct()', nargout=1)
 
 
-def import_obj_to_blender(obj_path: str):
-    import bpy
+def import_obj_to_blender(obj_path: str) -> Optional["bpy.types.Object"]:
+    if not TYPE_CHECKING:
+        import bpy
     try:
         if not os.path.exists(obj_path):
             print(f"OBJ file not found: {obj_path}")
-            return []
+            return None
         
         active_object = bpy.context.active_object
         bpy.ops.wm.obj_import(filepath=obj_path, forward_axis='Y', up_axis='Z')
         foliage_obj = bpy.context.view_layer.objects.active
-        foliage_obj.parent = active_object
+        if foliage_obj is not None:
+            foliage_obj.parent = active_object
         
         material_name = "Foliage_Green"
         if material_name not in bpy.data.materials:
@@ -153,9 +152,9 @@ def import_obj_to_blender(obj_path: str):
             mat = bpy.data.materials[material_name]
             mat.diffuse_color = (0.1, 0.6, 0.1, 1.0)
 
-        if foliage_obj.data.materials:
+        if foliage_obj is not None and foliage_obj.data.materials:
             foliage_obj.data.materials[0] = mat
-        else:
+        elif foliage_obj is not None:
             foliage_obj.data.materials.append(mat)
         
         bpy.context.view_layer.objects.active = active_object
@@ -168,7 +167,7 @@ def import_obj_to_blender(obj_path: str):
         return None
 
 
-def execute_leaf_generation_with_params(leaf_params: Optional[Dict[str, Any]] = None, quit_after: bool = False) -> bool:
+def execute_leaf_generation_with_params(leaf_params: Optional["LeafParamsDict"] = None, quit_after: bool = False) -> bool:
     """Execute MATLAB leaf generation using the parameterized function run_leaf_generation_with_params.
     Builds a MATLAB struct from the provided parameters and calls the function.
 
@@ -207,10 +206,10 @@ def generate_foliage(
     qsm: QSM,
     mat_path: str,
     execute_matlab: bool = False,
-    matlab_script_path: str | None = None,
+    matlab_script_path: Optional[str] = None,
     import_result: bool = True,
-    leaf_params: Optional[Dict[str, Any]] = None,
-):
+    leaf_params: Optional["LeafParamsDict"] = None,
+) -> None:
     qsm_dict = asdict(qsm)
     for key, value in qsm_dict.items():
         arr = np.asarray(value)
@@ -230,15 +229,15 @@ def generate_foliage(
             import_obj_to_blender(obj_path)
 
 
-def convert_sca_skeleton_to_qsm(sca_tree: SCA, radii: np.ndarray):
+def convert_sca_skeleton_to_qsm(sca_tree: "SCA", radii: np.ndarray) -> QSM:
     branchpoints = sca_tree.branchpoints
 
-    start: list[Vector] = []
-    axis: list[Vector] = []
-    length: list[float] = []
-    radius: list[float] = []
-    parent: list[int] = []
-    branch: list[int] = []
+    start: List["Vector"] = []
+    axis: List["Vector"] = []
+    length: List[float] = []
+    radius: List[float] = []
+    parent: List[int] = []
+    branch: List[int] = []
 
     active_list: List[ConversionNode] = [ConversionNode(0, 0, 1)]
 
@@ -248,7 +247,7 @@ def convert_sca_skeleton_to_qsm(sca_tree: SCA, radii: np.ndarray):
         current_branchpoint = branchpoints[current_node.sca_index]
         current_position = current_branchpoint.v
         
-        children = inverse_graph[current_node.sca_index]
+        children = inverse_graph.get(current_node.sca_index, [])
         branch_index = current_node.qsm_branch
         qsm_parent_index = len(start)
         for sca_child_index in children:
@@ -284,7 +283,7 @@ class ParallelLeafTask:
     """Represents a single leaf generation task."""
     tree_id: int
     qsm: QSM
-    leaf_params: Dict[str, Any]
+    leaf_params: "LeafParamsDict"
     tree_location: Tuple[float, float, float]
 
 
@@ -292,7 +291,7 @@ class ParallelLeafTask:
 class MatlabBackgroundTask:
     """Represents a background MATLAB task with its future result."""
     task_id: int
-    future: Any  # matlab.engine.FutureResult
+    future: Optional["MatlabFutureProtocol"]
     start_time: float
 
 
@@ -337,10 +336,11 @@ def parse_obj_string(obj_string: str) -> Tuple[List[Tuple[float, float, float]],
     return vertices, faces
 
 
-def create_blender_mesh_from_obj_data(obj_string: str, tree_id: int, tree_location: Tuple[float, float, float]) -> Optional[object]:
+def create_blender_mesh_from_obj_data(obj_string: str, tree_id: int, tree_location: Tuple[float, float, float]) -> Optional["bpy.types.Object"]:
     """Create a Blender mesh object directly from OBJ string data at the specified location."""
-    import bpy
-    from mathutils import Vector
+    if not TYPE_CHECKING:
+        import bpy
+        from mathutils import Vector
     
     try:
         # Parse OBJ data
@@ -425,16 +425,17 @@ class ParallelLeafGenerator:
     No temporary directories or disk I/O required - all data passed in memory.
     """
     
-    def __init__(self, max_workers: int = 4):
-        self.max_workers = max_workers
-        self.engines: List[matlab.engine.MatlabEngine] = []
-        self.struct_engine: Optional[matlab.engine.MatlabEngine] = None
+    def __init__(self, max_workers: int = 4) -> None:
+        self.max_workers: int = max_workers
+        self.engines: List["MatlabEngineProtocol"] = []
+        self.struct_engine: Optional["MatlabEngineProtocol"] = None
         
-    def __enter__(self):
-        # Start one dedicated engine for struct creation (non-blocking operations)
+    def __enter__(self) -> "ParallelLeafGenerator":
+        if not TYPE_CHECKING:
+            import matlab.engine
         try:
             print("Starting dedicated MATLAB engine for struct creation...")
-            self.struct_engine = matlab.engine.start_matlab()
+            self.struct_engine = matlab.engine.start_matlab()  # type: ignore
             leafgen_src = os.path.join(os.path.dirname(__file__), 'leafgen', 'src')
             if os.path.exists(leafgen_src):
                 self.struct_engine.addpath(leafgen_src, nargout=0)
@@ -443,16 +444,14 @@ class ParallelLeafGenerator:
             print(f"Failed to start struct engine: {e}")
             self.struct_engine = None
         
-        # Start MATLAB engines for background tasks
         print(f"Starting {self.max_workers} MATLAB engines for parallel leaf generation...")
         for i in range(self.max_workers):
             try:
-                engine = matlab.engine.start_matlab()
-                # Add necessary paths
+                engine = matlab.engine.start_matlab()  # type: ignore
                 leafgen_src = os.path.join(os.path.dirname(__file__), 'leafgen', 'src')
                 if os.path.exists(leafgen_src):
                     engine.addpath(leafgen_src, nargout=0)
-                self.engines.append(engine)
+                self.engines.append(engine)  # type: ignore
                 print(f"Started MATLAB engine {i+1}/{self.max_workers}")
             except Exception as e:
                 print(f"Failed to start MATLAB engine {i+1}: {e}")
@@ -460,8 +459,7 @@ class ParallelLeafGenerator:
         print(f"Successfully started {len(self.engines)} MATLAB engines + 1 struct engine")
         return self
         
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Quit struct engine
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         if self.struct_engine:
             try:
                 self.struct_engine.quit()
@@ -469,7 +467,6 @@ class ParallelLeafGenerator:
             except Exception as e:
                 print(f"Error quitting struct engine: {e}")
         
-        # Quit all MATLAB engines
         for i, engine in enumerate(self.engines):
             try:
                 engine.quit()
@@ -477,7 +474,7 @@ class ParallelLeafGenerator:
             except Exception as e:
                 print(f"Error quitting MATLAB engine {i+1}: {e}")
     
-    def generate_leaves_parallel(self, tasks: List[ParallelLeafTask]) -> Dict[int, Optional[object]]:
+    def generate_leaves_parallel(self, tasks: List[ParallelLeafTask]) -> Dict[int, Optional["bpy.types.Object"]]:
         """
         Generate leaves for multiple trees in parallel using MATLAB background execution.
         QSM data is passed directly to MATLAB and OBJ data is returned in memory.
@@ -579,7 +576,7 @@ class ParallelLeafGenerator:
         return results
 
 
-def finalize_parallel_leaf_results(results: Dict[int, Optional[object]], tree_locations: Dict[int, Tuple[float, float, float]]):
+def finalize_parallel_leaf_results(results: Dict[int, Optional["bpy.types.Object"]], tree_locations: Dict[int, Tuple[float, float, float]]) -> None:
     """
     Finalize the generated leaf objects.
     The objects have already been created, positioned, and parented during mesh creation.
